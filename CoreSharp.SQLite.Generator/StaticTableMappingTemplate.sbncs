@@ -1,0 +1,58 @@
+﻿using System;
+using System.Collections.Generic;
+using CoreSharp.SQLite;
+
+using Sqlite3Statement = System.IntPtr;
+
+namespace {{Namespace}}
+{
+    /// <summary>
+    /// Auto-Generated Table Mapping Class for {{MappedClassName}}
+    /// </summary>
+    public class {{MappedClassName}}TableMapping : StaticTableMapping<{{MappedClassName}}>
+    {
+        /// <summary>
+        /// Name of the Table created in SQLite Database (Set to {{TableName}})
+        /// </summary>
+        public override string TableName => "{{TableName}}";
+        
+        /// <summary>
+        /// CreateFlags as set in source {{CreateFlagsAsSpecified}}
+        /// </summary>
+        public virtual CreateFlags Flags => (CreateFlags){{CreateFlagsInt}};
+
+        /// <summary>
+        /// Create New Instance of {{MappedClassName}}TableMapping
+        /// </summary>
+        public {{MappedClassName}}TableMapping()
+        {
+            this.Columns = new IColumnMapping[{{array.size ColumnMappingModels}}];
+
+            {{ $i = 0 }}
+            {{ for column in ColumnMappingModels}}
+
+            this.Columns[{{$i}}] = new StaticColumnMapping<{{MappedClassName}},{{column.PropertyType}}>()
+            {
+                ColumnName = "{{column.PropertyName}}",
+                Setter = (target, value) => target.{{column.PropertyName}} = value,
+                Getter = (source) => source.{{column.PropertyName}}
+            };
+
+            {{$i = $i + 1}}
+
+            {{ end }}
+        }
+
+        /// <summary>
+        /// Drops the table
+        /// </summary>
+        /// <param name="connection"></param>
+        /// <returns></returns>
+        public override int DropTable( SQLiteConnection connection )
+        {
+            return connection.ExecuteNonQuery("drop table if exists \"{{TableName}}\"");
+        }
+
+
+    }
+}
