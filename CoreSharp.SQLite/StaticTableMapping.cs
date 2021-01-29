@@ -24,8 +24,7 @@ namespace CoreSharp.SQLite
         /// Create 
         /// </summary>
         /// <param name="connection"></param>
-        /// <returns></returns>
-        CreateTableResult CreateTable(SQLiteConnection connection);
+        void CreateTable(SQLiteConnection connection);
 
         /// <summary>
         /// Migrate existing database table to contain new fields added by current mapping
@@ -88,7 +87,7 @@ namespace CoreSharp.SQLite
 		/// </summary>
 		/// <param name="stmt"></param>
 		/// <returns></returns>
-		IEnumerable<T> ReadStatementResult(Sqlite3Statement stmt);
+		T ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null);
 
 		/// <summary>
 		/// Gets ampped column name from given property name
@@ -141,7 +140,11 @@ namespace CoreSharp.SQLite
             return connection.ExecuteNonQuery(query);*/
         }
 
-        public virtual CreateTableResult CreateTable(SQLiteConnection connection)
+		/// <summary>
+		/// Create the Table for storing this mapped class
+		/// </summary>
+		/// <param name="connection">Connection to use</param>
+        public virtual void CreateTable(SQLiteConnection connection)
         {
             /*
              * 
@@ -169,9 +172,33 @@ namespace CoreSharp.SQLite
             throw new NotImplementedException();
         }
 
+		/// <summary>
+		/// Add Missing columns in the database to store all properties in current
+		/// class definition
+		/// </summary>
+		/// <param name="connection">Connection to use</param>
+		/// <param name="existingColumns">columns currently in the database</param>
         public virtual void MigrateTable(SQLiteConnection connection, List<string> existingColumns)
         {
-            /*
+			// this dictionary contains list of columns and
+			// commands to alter table and create column
+			// existing column will remove item in this dictionary
+			var allColumns = new Dictionary<string, string>();
+
+            foreach (var column in existingColumns)
+            {
+                if (allColumns.ContainsKey(column))
+                {
+					allColumns.Remove(column);
+                }
+            }
+
+			foreach (var column in allColumns)
+			{
+				connection.ExecuteNonQuery(column.Value);
+			}
+
+			/*
              var toBeAdded = new List<TableMappingColumn>();
 
 			foreach (var p in map.Columns)
@@ -196,9 +223,14 @@ namespace CoreSharp.SQLite
 			}
              */
 
-            throw new NotImplementedException();
+
+			throw new NotImplementedException();
         }
 
+		/// <summary>
+		/// Create Indexes for current table as specified using attribute in class
+		/// </summary>
+		/// <param name="connection"></param>
         public virtual void CreateIndex(SQLiteConnection connection)
         {
 			/*
@@ -248,7 +280,12 @@ namespace CoreSharp.SQLite
              */
 		}
 
-		public virtual T GetByPrimaryKey(object pk)
+		/// <summary>
+		/// Gets an object by its primary key
+		/// </summary>
+		/// <param name="pk"></param>
+		/// <returns></returns>
+		public virtual T GetByPrimaryKey<TKey>(TKey pk)
         {
 			// use a precompiled query
 			throw new NotImplementedException();
@@ -257,6 +294,11 @@ namespace CoreSharp.SQLite
 		public virtual int Insert(SQLiteConnection connection, T input, bool replace)
 		{
 			throw new NotImplementedException();
+
+			string cmdText = "insert into table_name(field1,field2) values (?,?) ";
+
+			// loop through all property in the same order as insert command generation
+			//SQLite3.BindInt(stmt, 0, 0);
 
 			if (replace)
             {
@@ -443,7 +485,7 @@ namespace CoreSharp.SQLite
 			return conn.ExecuteNonQuery(query);
 		}
 
-		public virtual IEnumerable<T> ReadStatementResult(Sqlite3Statement stmt)
+		public virtual T ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null)
 		{
 			/*
 				// Prepare Mapping for the given statement first

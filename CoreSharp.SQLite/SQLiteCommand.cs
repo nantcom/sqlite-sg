@@ -15,105 +15,309 @@ using Sqlite3Statement = System.IntPtr;
 
 namespace CoreSharp.SQLite
 {
-
-	public partial class SQLiteCommand
+	/// <summary>
+	/// Represents a SQLite Command to be executed
+	/// </summary>
+	public partial class SQLiteCommand : IDisposable
 	{
-		SQLiteConnection _conn;
-		private List<Binding> _bindings;
+		SQLiteConnection _Conn;
+		private List<(string Name, object Value)> _Parameters;
 
-		public string CommandText { get; set; }
+		/// <summary>
+		/// Command Text
+		/// </summary>
+		public string CommandText { get; private set; } = string.Empty;
 
-		public SQLiteCommand(SQLiteConnection conn)
-		{
-			_conn = conn;
-			_bindings = new List<Binding>();
-			CommandText = "";
+		/// <summary>
+		/// Whether this instance is a prepared statement and will not be disposed
+		/// after execution. Beware that prepared statement can only be used by one thread at a time.
+		/// </summary>
+        public bool IsPreparedStatement { get; private set; }
+
+		public event Action<object> OnInstanceCreated = delegate { };
+
+        static SQLiteCommand()
+        {
+			SQLiteCommand.BuildColumnReader();
+			SQLiteCommand.BuildBinders();
 		}
 
-		public int ExecuteNonQuery()
+		/// <summary>
+		/// Whether this is a prepared command
+		/// </summary>
+		/// <param name="conn"></param>
+		/// <param name="prepared"></param>
+		public SQLiteCommand(SQLiteConnection conn, bool prepared = false)
 		{
-			if (_conn.Trace)
-			{
-				_conn.Tracer?.Invoke("Executing: " + this);
+			_Conn = conn;
+			this.CommandText = "";
+			this.IsPreparedStatement = prepared;
+		}
+
+		public SQLiteCommand(SQLiteConnection conn, string commandText, bool prepared = false)
+		{
+			_Conn = conn;
+			this.CommandText = commandText;
+		}
+
+		/// <summary>
+		/// Sets a list of parameters to be bound to command, overriding existing list
+		/// </summary>
+		/// <param name="value"></param>
+		public void SetParameters( params object[] values )
+        {
+			_Parameters = values.Select(v => (Name: string.Empty, Value: v)).ToList();
+		}
+
+		/// <summary>
+		/// Sets a parameter list to be bound to command, overriding existing list
+		/// </summary>
+		/// <param name="value">Tuples of parameter names and value</param>
+		public void SetNamedParameters(params (string Name, object Value)[] parameters)
+		{
+			_Parameters = parameters.ToList();
+		}
+
+		/// <summary>
+		/// Sets a parameter list to be bound to command, overriding existing list
+		/// </summary>
+		/// <param name="value"></param>
+		public void SetNamedParameters(IEnumerable<KeyValuePair<string, object>> values)
+		{
+			_Parameters = values.Select(p => (Name: p.Key, Value: p.Value)).ToList();
+		}
+
+		#region Prepare Statement
+
+		private Sqlite3Statement _PreparedStatement;
+
+		/// <summary>
+		/// Prepare a command
+		/// </summary>
+		/// <param name="query"></param>
+		/// <returns></returns>
+		private Sqlite3Statement Prepare()
+		{
+			Sqlite3Statement stmt;
+
+			if (this.IsPreparedStatement)
+            {
+                if (_PreparedStatement == IntPtr.Zero)
+                {
+					_PreparedStatement = SQLite3.Prepare2(_Conn.Handle, this.CommandText);
+				}
+				stmt = _PreparedStatement;
+			}
+			else
+            {
+				stmt = SQLite3.Prepare2(_Conn.Handle, this.CommandText);
 			}
 
-			var r = SQLite3.Result.OK;
-			var stmt = Prepare();
-			r = SQLite3.Step(stmt);
-			Finalize(stmt);
-			if (r == SQLite3.Result.Done)
+            if (_Parameters?[0].Name != null)
 			{
-				int rowsAffected = SQLite3.Changes(_conn.Handle);
-				return rowsAffected;
-			}
-			else if (r == SQLite3.Result.Error)
-			{
-				string msg = SQLite3.GetErrmsg(_conn.Handle);
-				throw SQLiteException.New(r, msg);
-			}
-			else if (r == SQLite3.Result.Constraint)
-			{
-				if (SQLite3.ExtendedErrCode(_conn.Handle) == SQLite3.ExtendedResult.ConstraintNotNull)
+				foreach (var p in _Parameters)
 				{
-					throw NotNullConstraintViolationException.New(r, SQLite3.GetErrmsg(_conn.Handle));
+					var index = SQLite3.BindParameterIndex(stmt, p.Name);
+					this.BindParameter(stmt, index, p.Value);
 				}
 			}
-
-			throw SQLiteException.New(r, SQLite3.GetErrmsg(_conn.Handle));
-		}
-
-		/// <summary>
-		/// Invoked every time an instance is loaded from the database.
-		/// </summary>
-		/// <param name='obj'>
-		/// The newly created object.
-		/// </param>
-		/// <remarks>
-		/// This can be overridden in combination with the <see cref="SQLiteConnection.NewCommand"/>
-		/// method to hook into the life-cycle of objects.
-		/// </remarks>
-		protected virtual void OnInstanceCreated(object obj)
-		{
-			// Can be overridden.
-		}
-
-		/// <summary>
-		/// Get Result from Query
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="map"></param>
-		/// <returns></returns>
-		public IEnumerable<T> ExecuteDeferredQuery<T>()
-		{
-			var map = _conn.GetMapping<T>();
-
-			if (_conn.Trace)
+            else
 			{
-				_conn.Tracer?.Invoke("Executing Query: " + this);
+				int nextIdx = 1;
+				foreach (var p in _Parameters)
+				{
+					var index = nextIdx++;
+					this.BindParameter(stmt, index, p);
+				}
+
 			}
 
-			var stmt = Prepare();
+			return stmt;
+		}
+
+		private static readonly IntPtr _NegativePtr = new IntPtr(-1);
+		private delegate void Binder(Sqlite3Statement stmt, int index, object value);
+		private static readonly Dictionary<Type, Binder> _Binders = new();
+
+		private static void BuildBinders()
+        {
+			Binder binder;
+			binder = (stmt, index, value) => SQLite3.BindInt(stmt, index, Convert.ToInt32(value));
+
+			_Binders[typeof(Int32)] = binder;
+			_Binders[typeof(Byte)] = binder;
+			_Binders[typeof(UInt16)] = binder;
+			_Binders[typeof(SByte)] = binder;
+			_Binders[typeof(Int16)] = binder;
+			_Binders[typeof(Boolean)] = binder;
+
+			binder = (stmt, index, value) => SQLite3.BindInt64(stmt, index, Convert.ToInt64(value));
+			_Binders[typeof(UInt32)] = binder;
+			_Binders[typeof(Int64)] = binder;
+
+			_Binders[typeof(string)] = (stmt, index, value) => SQLite3.BindText(stmt, index, (string)value, -1, _NegativePtr);
+
+			_Binders[typeof(TimeSpan)] = (stmt, index, value) => SQLite3.BindInt64(stmt, index, ((TimeSpan)value).Ticks);
+			_Binders[typeof(DateTime)] = (stmt, index, value) => SQLite3.BindInt64(stmt, index, ((DateTime)value).Ticks);
+			_Binders[typeof(DateTimeOffset)] = (stmt, index, value) => SQLite3.BindInt64(stmt, index, ((DateTimeOffset)value).UtcTicks);
+
+			_Binders[typeof(byte[])] = (stmt, index, value) => SQLite3.BindBlob(stmt, index, (byte[])value, ((byte[])value).Length, _NegativePtr);
+
+			_Binders[typeof(Guid)] = (stmt, index, value) => SQLite3.BindText(stmt, index, ((Guid)value).ToString(), 72, _NegativePtr);
+
+			_Binders[typeof(Uri)] = (stmt, index, value) => SQLite3.BindText(stmt, index, ((Uri)value).ToString(), -1, _NegativePtr);
+
+			_Binders[typeof(StringBuilder)] = (stmt, index, value) => SQLite3.BindText(stmt, index, ((StringBuilder)value).ToString(), -1, _NegativePtr);
+
+			_Binders[typeof(UriBuilder)] = (stmt, index, value) => SQLite3.BindText(stmt, index, ((UriBuilder)value).ToString(), -1, _NegativePtr);
+		}
+
+		/// <summary>
+		/// Bind Parameter to a statement
+		/// </summary>
+		/// <param name="stmt"></param>
+		/// <param name="index"></param>
+		/// <param name="value"></param>
+		/// <param name="storeDateTimeAsTicks"></param>
+		/// <param name="dateTimeStringFormat"></param>
+		/// <param name="storeTimeSpanAsTicks"></param>
+		private void BindParameter(Sqlite3Statement stmt, int index, object value)
+		{
+			if (value == null)
+			{
+				SQLite3.BindNull(stmt, index);
+				return;
+			}
+
+			Binder binder;
+            if (_Binders.TryGetValue( value.GetType(), out binder))
+            {
+				binder(stmt, index, value);
+				return;
+            }
+
+			// Now we could possibly get an enum, retrieve cached info
+			var valueType = value.GetType();
+			var enumInfo = EnumCache.GetInfo(valueType);
+			if (enumInfo.IsEnum)
+			{
+				var enumIntValue = Convert.ToInt32(value);
+				if (enumInfo.StoreAsText)
+				{
+					SQLite3.BindText(stmt, index, enumInfo.EnumValues[enumIntValue], -1, _NegativePtr);
+				}
+				else
+				{
+					SQLite3.BindInt(stmt, index, enumIntValue);
+				}
+			}
+			else
+			{
+				throw new NotSupportedException("Cannot store type: " + Orm.GetType(value));
+			}
+		}
+
+		#endregion
+
+		/// <summary>
+		/// Execute query without result
+		/// </summary>
+		/// <returns></returns>
+		public int ExecuteNonQuery()
+		{
+			if (_Conn.Trace)
+			{
+				_Conn.Tracer?.Invoke("Executing: " + this);
+			}
+
+			Sqlite3Statement stmt = IntPtr.Zero;
+            try
+            {
+				var r = SQLite3.Result.OK;
+
+				stmt = this.Prepare();
+				r = SQLite3.Step(stmt);
+
+				if (r == SQLite3.Result.Done)
+				{
+					int rowsAffected = SQLite3.Changes(_Conn.Handle);
+					return rowsAffected;
+				}
+				else if (r == SQLite3.Result.Error)
+				{
+					string msg = SQLite3.GetErrmsg(_Conn.Handle);
+					throw SQLiteException.New(r, msg);
+				}
+				else if (r == SQLite3.Result.Constraint)
+				{
+					if (SQLite3.ExtendedErrCode(_Conn.Handle) == SQLite3.ExtendedResult.ConstraintNotNull)
+					{
+						throw NotNullConstraintViolationException.New(r, SQLite3.GetErrmsg(_Conn.Handle));
+					}
+				}
+
+				throw SQLiteException.New(r, SQLite3.GetErrmsg(_Conn.Handle));
+			}
+            finally
+			{
+				this.Finalize(stmt);
+			}
+			
+		}
+
+		/// <summary>
+		/// Get Result from Query. Optionally specify that fields are ordered per static mapping.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="staticFieldList">If true, the function will assume field list follows the
+		/// static mapping and will skip column order checks. Used internally by the library.</param>
+		/// <returns></returns>
+		public IEnumerable<T> ExecuteDeferredQuery<T>(bool staticFieldList = false)
+		{
+			var map = _Conn.GetMapping<T>();
+
+			if (_Conn.Trace)
+			{
+				_Conn.Tracer?.Invoke("Executing Query: " + this);
+			}
+
+			Sqlite3Statement stmt = IntPtr.Zero;
 			try
 			{
-                foreach (var item in map.ReadStatementResult(stmt))
-                {
-					yield return item;
-                }
+				stmt = this.Prepare();
+
+				string[] cols = null;
+                if (staticFieldList)
+				{
+					cols = new string[SQLite3.ColumnCount(stmt)];
+					for (int i = 0; i < cols.Length; i++)
+					{
+						cols[i] = SQLite3.ColumnName16(stmt, i);
+					}
+				}
+
+				while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+				{
+					T obj = map.ReadStatementResult(stmt, cols);
+					this.OnInstanceCreated(obj);
+					yield return obj;
+				}
+
 			}
 			finally
 			{
-				SQLite3.Finalize(stmt);
+				this.Finalize(stmt);
 			}
 		}
 
 		/// <summary>
-		/// Get First Column of First Row in the result
+		/// Get First Column of First Row in the result. Or specified the column index to get
 		/// </summary>
 		/// <typeparam name="T"></typeparam>
 		/// <returns></returns>
-		public T ExecuteScalar<T>()
+		public T ExecuteScalar<T>(int colIndex = 0)
 		{
-			return this.ExecuteDeferredScalars<T>(0).FirstOrDefault();
+			return this.ExecuteDeferredScalars<T>(colIndex).FirstOrDefault();
 		}
 
 		/// <summary>
@@ -124,11 +328,7 @@ namespace CoreSharp.SQLite
 		/// <returns></returns>
 		public IEnumerable<T> ExecuteDeferredScalars<T>(int columnIndex = 0)
 		{
-			if (_conn.Trace)
-			{
-				_conn.Tracer?.Invoke("Executing Query: " + this);
-			}
-			var stmt = Prepare();
+			var stmt = this.Prepare();
 			try
 			{
 				var totalColumns = SQLite3.ColumnCount(stmt);
@@ -144,8 +344,7 @@ namespace CoreSharp.SQLite
 
 				while (SQLite3.Step(stmt) == SQLite3.Result.Row)
 				{
-					var colType = SQLite3.ColumnType(stmt, columnIndex);
-					var val = ReadCol(stmt, columnIndex, colType, typeof(T));
+					var val = this.ReadCol<T>(stmt, columnIndex);
 					if (val == null)
 					{
 						yield return default(T);
@@ -158,30 +357,88 @@ namespace CoreSharp.SQLite
 			}
 			finally
 			{
-				Finalize(stmt);
+				this.Finalize(stmt);
 			}
 		}
 
-		public void Bind(string name, object val)
+        #region Dynamic Column Readers
+
+        private delegate object SQLite3ColumnReader(Sqlite3Statement s, int i);
+		private static Dictionary<Type, SQLite3ColumnReader> _Reader = new();
+
+		private static void BuildColumnReader()
+        {
+			SQLite3ColumnReader reader;
+			
+			reader = (s, i) => SQLite3.ColumnInt(s, i);
+			_Reader[typeof(int)] = reader;
+			_Reader[typeof(bool)] = reader;
+			_Reader[typeof(byte)] = reader;
+			_Reader[typeof(UInt16)] = reader;
+			_Reader[typeof(Int16)] = reader;
+			_Reader[typeof(sbyte)] = reader;
+
+			reader = (s, i) => SQLite3.ColumnInt64(s, i);
+			_Reader[typeof(TimeSpan)] = (s, i) => TimeSpan.FromTicks((long)reader(s, i));
+			_Reader[typeof(DateTime)] = (s, i) => new DateTime((long)reader(s, i));
+			_Reader[typeof(DateTimeOffset)] = (s, i) => new DateTimeOffset((long)reader(s, i), TimeSpan.Zero);
+
+			reader = (s, i) => SQLite3.ColumnDouble(s, i);
+			_Reader[typeof(double)] = reader;
+			_Reader[typeof(double)] = reader;
+
+			reader = (s, i) => SQLite3.ColumnString(s, i);
+			_Reader[typeof(string)] = reader;
+			_Reader[typeof(Guid)] = (s,i) => new Guid( (string)reader(s,i) );
+			_Reader[typeof(Uri)] = (s, i) => new Uri((string)reader(s, i));
+			_Reader[typeof(StringBuilder)] = (s, i) => new StringBuilder((string)reader(s, i));
+			_Reader[typeof(UriBuilder)] = (s, i) => new UriBuilder((string)reader(s, i));
+		}
+
+		private object ReadCol<T>(Sqlite3Statement stmt, int index)
 		{
-			_bindings.Add(new Binding
+			var colType = SQLite3.ColumnType(stmt, index);
+            if (colType == SQLite3.ColType.Null)
+            {
+				return null;
+            }
+
+			var clrType = typeof(T);
+
+			if (clrType.IsEnum)
 			{
-				Name = name,
-				Value = val
-			});
+				if (colType == SQLite3.ColType.Text)
+				{
+					var value = SQLite3.ColumnString(stmt, index);
+					return Enum.Parse(clrType, value.ToString(), true);
+				}
+				else
+				{
+					return SQLite3.ColumnInt(stmt, index);
+				}
+			}
+
+			SQLite3ColumnReader reader;
+            if (_Reader.TryGetValue(clrType, out reader))
+            {
+				return reader(stmt, index);
+            }
+
+			throw new NotSupportedException("Don't know how to read " + clrType);
 		}
 
-		public void Bind(object val)
-		{
-			Bind(null, val);
-		}
+		#endregion
 
+		/// <summary>
+		/// Gets string representation of this commdn
+		/// </summary>
+		/// <returns></returns>
 		public override string ToString()
 		{
-			var parts = new string[1 + _bindings.Count];
+			var parts = new string[1 + _Parameters.Count];
 			parts[0] = CommandText;
 			var i = 1;
-			foreach (var b in _bindings)
+			foreach (var b in _Parameters)
 			{
 				parts[i] = string.Format("  {0}: {1}", i - 1, b.Value);
 				i++;
@@ -189,287 +446,41 @@ namespace CoreSharp.SQLite
 			return string.Join(Environment.NewLine, parts);
 		}
 
-		Sqlite3Statement Prepare()
+		/// <summary>
+		/// Finalize the statement, if specified statement is the prepared statement, it will not be finalized
+		/// </summary>
+		/// <param name="stmt"></param>
+		private void Finalize(Sqlite3Statement stmt)
 		{
-			var stmt = SQLite3.Prepare2(_conn.Handle, CommandText);
-			BindAll(stmt);
-			return stmt;
-		}
+            if (stmt == IntPtr.Zero)
+            {
+				return;
+            }
 
-		void Finalize(Sqlite3Statement stmt)
-		{
+			// skip finalizing as requested
+            if (this.IsPreparedStatement && stmt == _PreparedStatement)
+            {
+				return;
+            }
+
 			SQLite3.Finalize(stmt);
 		}
 
-		void BindAll(Sqlite3Statement stmt)
+        public void Dispose()
 		{
-			int nextIdx = 1;
-			foreach (var b in _bindings)
+			if (_PreparedStatement == IntPtr.Zero)
 			{
-				if (b.Name != null)
-				{
-					b.Index = SQLite3.BindParameterIndex(stmt, b.Name);
-				}
-				else
-				{
-					b.Index = nextIdx++;
-				}
-
-				BindParameter(stmt, b.Index, b.Value, _conn.StoreDateTimeAsTicks, _conn.DateTimeStringFormat, _conn.StoreTimeSpanAsTicks);
+				return;
 			}
+
+			SQLite3.Finalize(_PreparedStatement);
 		}
 
-		static IntPtr NegativePointer = new IntPtr(-1);
+		~SQLiteCommand()
+        {
+			this.Dispose();
+        }
 
-		internal static void BindParameter(Sqlite3Statement stmt, int index, object value, bool storeDateTimeAsTicks, string dateTimeStringFormat, bool storeTimeSpanAsTicks)
-		{
-			if (value == null)
-			{
-				SQLite3.BindNull(stmt, index);
-			}
-			else
-			{
-				if (value is Int32)
-				{
-					SQLite3.BindInt(stmt, index, (int)value);
-				}
-				else if (value is String)
-				{
-					SQLite3.BindText(stmt, index, (string)value, -1, NegativePointer);
-				}
-				else if (value is Byte || value is UInt16 || value is SByte || value is Int16)
-				{
-					SQLite3.BindInt(stmt, index, Convert.ToInt32(value));
-				}
-				else if (value is Boolean)
-				{
-					SQLite3.BindInt(stmt, index, (bool)value ? 1 : 0);
-				}
-				else if (value is UInt32 || value is Int64)
-				{
-					SQLite3.BindInt64(stmt, index, Convert.ToInt64(value));
-				}
-				else if (value is Single || value is Double || value is Decimal)
-				{
-					SQLite3.BindDouble(stmt, index, Convert.ToDouble(value));
-				}
-				else if (value is TimeSpan)
-				{
-					if (storeTimeSpanAsTicks)
-					{
-						SQLite3.BindInt64(stmt, index, ((TimeSpan)value).Ticks);
-					}
-					else
-					{
-						SQLite3.BindText(stmt, index, ((TimeSpan)value).ToString(), -1, NegativePointer);
-					}
-				}
-				else if (value is DateTime)
-				{
-					if (storeDateTimeAsTicks)
-					{
-						SQLite3.BindInt64(stmt, index, ((DateTime)value).Ticks);
-					}
-					else
-					{
-						SQLite3.BindText(stmt, index, ((DateTime)value).ToString(dateTimeStringFormat, System.Globalization.CultureInfo.InvariantCulture), -1, NegativePointer);
-					}
-				}
-				else if (value is DateTimeOffset)
-				{
-					SQLite3.BindInt64(stmt, index, ((DateTimeOffset)value).UtcTicks);
-				}
-				else if (value is byte[])
-				{
-					SQLite3.BindBlob(stmt, index, (byte[])value, ((byte[])value).Length, NegativePointer);
-				}
-				else if (value is Guid)
-				{
-					SQLite3.BindText(stmt, index, ((Guid)value).ToString(), 72, NegativePointer);
-				}
-				else if (value is Uri)
-				{
-					SQLite3.BindText(stmt, index, ((Uri)value).ToString(), -1, NegativePointer);
-				}
-				else if (value is StringBuilder)
-				{
-					SQLite3.BindText(stmt, index, ((StringBuilder)value).ToString(), -1, NegativePointer);
-				}
-				else if (value is UriBuilder)
-				{
-					SQLite3.BindText(stmt, index, ((UriBuilder)value).ToString(), -1, NegativePointer);
-				}
-				else
-				{
-					// Now we could possibly get an enum, retrieve cached info
-					var valueType = value.GetType();
-					var enumInfo = EnumCache.GetInfo(valueType);
-					if (enumInfo.IsEnum)
-					{
-						var enumIntValue = Convert.ToInt32(value);
-						if (enumInfo.StoreAsText)
-							SQLite3.BindText(stmt, index, enumInfo.EnumValues[enumIntValue], -1, NegativePointer);
-						else
-							SQLite3.BindInt(stmt, index, enumIntValue);
-					}
-					else
-					{
-						throw new NotSupportedException("Cannot store type: " + Orm.GetType(value));
-					}
-				}
-			}
-		}
-
-		class Binding
-		{
-			public string Name { get; set; }
-
-			public object Value { get; set; }
-
-			public int Index { get; set; }
-		}
-
-		object ReadCol(Sqlite3Statement stmt, int index, SQLite3.ColType type, Type clrType)
-		{
-			if (type == SQLite3.ColType.Null)
-			{
-				return null;
-			}
-			else
-			{
-				var clrTypeInfo = clrType.GetTypeInfo();
-				if (clrTypeInfo.IsGenericType && clrTypeInfo.GetGenericTypeDefinition() == typeof(Nullable<>))
-				{
-					clrType = clrTypeInfo.GenericTypeArguments[0];
-					clrTypeInfo = clrType.GetTypeInfo();
-				}
-
-				if (clrType == typeof(String))
-				{
-					return SQLite3.ColumnString(stmt, index);
-				}
-				else if (clrType == typeof(Int32))
-				{
-					return (int)SQLite3.ColumnInt(stmt, index);
-				}
-				else if (clrType == typeof(Boolean))
-				{
-					return SQLite3.ColumnInt(stmt, index) == 1;
-				}
-				else if (clrType == typeof(double))
-				{
-					return SQLite3.ColumnDouble(stmt, index);
-				}
-				else if (clrType == typeof(float))
-				{
-					return (float)SQLite3.ColumnDouble(stmt, index);
-				}
-				else if (clrType == typeof(TimeSpan))
-				{
-					if (_conn.StoreTimeSpanAsTicks)
-					{
-						return new TimeSpan(SQLite3.ColumnInt64(stmt, index));
-					}
-					else
-					{
-						var text = SQLite3.ColumnString(stmt, index);
-						TimeSpan resultTime;
-						if (!TimeSpan.TryParseExact(text, "c", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.TimeSpanStyles.None, out resultTime))
-						{
-							resultTime = TimeSpan.Parse(text);
-						}
-						return resultTime;
-					}
-				}
-				else if (clrType == typeof(DateTime))
-				{
-					if (_conn.StoreDateTimeAsTicks)
-					{
-						return new DateTime(SQLite3.ColumnInt64(stmt, index));
-					}
-					else
-					{
-						var text = SQLite3.ColumnString(stmt, index);
-						DateTime resultDate;
-						if (!DateTime.TryParseExact(text, _conn.DateTimeStringFormat, System.Globalization.CultureInfo.InvariantCulture, _conn.DateTimeStyle, out resultDate))
-						{
-							resultDate = DateTime.Parse(text);
-						}
-						return resultDate;
-					}
-				}
-				else if (clrType == typeof(DateTimeOffset))
-				{
-					return new DateTimeOffset(SQLite3.ColumnInt64(stmt, index), TimeSpan.Zero);
-				}
-				else if (clrTypeInfo.IsEnum)
-				{
-					if (type == SQLite3.ColType.Text)
-					{
-						var value = SQLite3.ColumnString(stmt, index);
-						return Enum.Parse(clrType, value.ToString(), true);
-					}
-					else
-						return SQLite3.ColumnInt(stmt, index);
-				}
-				else if (clrType == typeof(Int64))
-				{
-					return SQLite3.ColumnInt64(stmt, index);
-				}
-				else if (clrType == typeof(UInt32))
-				{
-					return (uint)SQLite3.ColumnInt64(stmt, index);
-				}
-				else if (clrType == typeof(decimal))
-				{
-					return (decimal)SQLite3.ColumnDouble(stmt, index);
-				}
-				else if (clrType == typeof(Byte))
-				{
-					return (byte)SQLite3.ColumnInt(stmt, index);
-				}
-				else if (clrType == typeof(UInt16))
-				{
-					return (ushort)SQLite3.ColumnInt(stmt, index);
-				}
-				else if (clrType == typeof(Int16))
-				{
-					return (short)SQLite3.ColumnInt(stmt, index);
-				}
-				else if (clrType == typeof(sbyte))
-				{
-					return (sbyte)SQLite3.ColumnInt(stmt, index);
-				}
-				else if (clrType == typeof(byte[]))
-				{
-					return SQLite3.ColumnByteArray(stmt, index);
-				}
-				else if (clrType == typeof(Guid))
-				{
-					var text = SQLite3.ColumnString(stmt, index);
-					return new Guid(text);
-				}
-				else if (clrType == typeof(Uri))
-				{
-					var text = SQLite3.ColumnString(stmt, index);
-					return new Uri(text);
-				}
-				else if (clrType == typeof(StringBuilder))
-				{
-					var text = SQLite3.ColumnString(stmt, index);
-					return new StringBuilder(text);
-				}
-				else if (clrType == typeof(UriBuilder))
-				{
-					var text = SQLite3.ColumnString(stmt, index);
-					return new UriBuilder(text);
-				}
-				else
-				{
-					throw new NotSupportedException("Don't know how to read " + clrType);
-				}
-			}
-		}
 	}
 
 }

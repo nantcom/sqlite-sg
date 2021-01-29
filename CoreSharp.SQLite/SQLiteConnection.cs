@@ -27,8 +27,6 @@ namespace CoreSharp.SQLite
 
 		//There is no way to keep ITableMapping using generic interface, so we need to keep it as object
 		readonly static Dictionary<Type, object> _mappings = new Dictionary<Type, object>();
-		private System.Diagnostics.Stopwatch _sw;
-		private long _elapsedMilliseconds = 0;
 
 		private int _transactionDepth = 0;
 		private Random _rand = new Random();
@@ -48,11 +46,6 @@ namespace CoreSharp.SQLite
 		public int LibVersionNumber { get; private set; }
 
 		/// <summary>
-		/// Whether Trace lines should be written that show the execution time of queries.
-		/// </summary>
-		public bool TimeExecution { get; set; }
-
-		/// <summary>
 		/// Whether to write queries to <see cref="Tracer"/> during execution.
 		/// </summary>
 		public bool Trace { get; set; }
@@ -62,22 +55,6 @@ namespace CoreSharp.SQLite
 		/// </summary>
 		/// <value>The tracer.</value>
 		public Action<string> Tracer { get; set; }
-
-		/// <summary>
-		/// Whether to store DateTime properties as ticks (true) or strings (false).
-		/// </summary>
-		public bool StoreDateTimeAsTicks { get; private set; }
-
-		/// <summary>
-		/// Whether to store TimeSpan properties as ticks (true) or strings (false).
-		/// </summary>
-		public bool StoreTimeSpanAsTicks { get; private set; }
-
-		/// <summary>
-		/// The format to use when storing DateTime properties as strings. Ignored if StoreDateTimeAsTicks is true.
-		/// </summary>
-		/// <value>The date time string format.</value>
-		public string DateTimeStringFormat { get; private set; }
 
 		/// <summary>
 		/// The DateTimeStyles value to use when parsing a DateTime property string.
@@ -158,9 +135,6 @@ namespace CoreSharp.SQLite
 			}
 			_open = true;
 
-			StoreDateTimeAsTicks = connectionString.StoreDateTimeAsTicks;
-			StoreTimeSpanAsTicks = connectionString.StoreTimeSpanAsTicks;
-			DateTimeStringFormat = connectionString.DateTimeStringFormat;
 			DateTimeStyle = connectionString.DateTimeStyle;
 
 			BusyTimeout = TimeSpan.FromSeconds(1.0);
@@ -294,21 +268,6 @@ namespace CoreSharp.SQLite
 			return null;
 		}
 
-
-		private struct IndexedColumn
-		{
-			public int Order;
-			public string ColumnName;
-		}
-
-		private struct IndexInfo
-		{
-			public string IndexName;
-			public string TableName;
-			public bool Unique;
-			public List<IndexedColumn> Columns;
-		}
-
 		/// <summary>
 		/// Executes a "drop table" on the database.  This is non-recoverable.
 		/// </summary>
@@ -362,15 +321,6 @@ namespace CoreSharp.SQLite
 		}
 
 		/// <summary>
-		/// Creates a new SQLiteCommand. Can be overridden to provide a sub-class.
-		/// </summary>
-		/// <seealso cref="SQLiteCommand.OnInstanceCreated"/>
-		protected virtual SQLiteCommand NewCommand()
-		{
-			return new SQLiteCommand(this);
-		}
-
-		/// <summary>
 		/// Creates a new SQLiteCommand given the command text with arguments. Place a '?'
 		/// in the command text for each of the arguments.
 		/// </summary>
@@ -388,12 +338,8 @@ namespace CoreSharp.SQLite
 			if (!_open)
 				throw SQLiteException.New(SQLite3.Result.Error, "Cannot create commands from unopened database");
 
-			var cmd = NewCommand();
-			cmd.CommandText = cmdText;
-			foreach (var o in ps)
-			{
-				cmd.Bind(o);
-			}
+			var cmd = new SQLiteCommand(this, cmdText);
+			cmd.SetParameters(ps);
 			return cmd;
 		}
 
@@ -416,12 +362,8 @@ namespace CoreSharp.SQLite
 			if (!_open)
 				throw SQLiteException.New(SQLite3.Result.Error, "Cannot create commands from unopened database");
 
-			SQLiteCommand cmd = NewCommand();
-			cmd.CommandText = cmdText;
-			foreach (var kv in args)
-			{
-				cmd.Bind(kv.Key, kv.Value);
-			}
+			var cmd = new SQLiteCommand(this, cmdText);
+			cmd.SetNamedParameters(args);
 			return cmd;
 		}
 
@@ -436,36 +378,16 @@ namespace CoreSharp.SQLite
 		/// <param name="query">
 		/// The fully escaped SQL.
 		/// </param>
-		/// <param name="args">
+		/// <param name="parameters">
 		/// Arguments to substitute for the occurences of '?' in the query.
 		/// </param>
 		/// <returns>
 		/// The number of rows modified in the database as a result of this execution.
 		/// </returns>
-		public int ExecuteNonQuery(string query, params object[] args)
+		public int ExecuteNonQuery(string query, params object[] parameters)
 		{
-			var cmd = CreateCommand(query, args);
-
-			if (TimeExecution)
-			{
-				if (_sw == null)
-				{
-					_sw = new Stopwatch();
-				}
-				_sw.Reset();
-				_sw.Start();
-			}
-
-			var r = cmd.ExecuteNonQuery();
-
-			if (TimeExecution)
-			{
-				_sw.Stop();
-				_elapsedMilliseconds += _sw.ElapsedMilliseconds;
-				Tracer?.Invoke(string.Format("Finished in {0} ms ({1:0.0} s total)", _sw.ElapsedMilliseconds, _elapsedMilliseconds / 1000.0));
-			}
-
-			return r;
+			var cmd = this.CreateCommand(query, parameters);
+			return cmd.ExecuteNonQuery();
 		}
 
 		/// <summary>
@@ -480,11 +402,11 @@ namespace CoreSharp.SQLite
 		/// Arguments to substitute for the occurences of '?' in the query.
 		/// </param>
 		/// <returns>
-		/// An enumerable with one result for the first column of each row returned by the query.
+		/// An enumerable with one result for the specified column of each row returned by the query.
 		/// </returns>
 		public IEnumerable<T> QueryDeferredScalars<T>(string query, int columnIndex = 0, params object[] args)
 		{
-			var cmd = CreateCommand(query, args);
+			var cmd = this.CreateCommand(query, args);
 			return cmd.ExecuteDeferredScalars<T>(columnIndex);
 		}
 
@@ -508,7 +430,7 @@ namespace CoreSharp.SQLite
 		/// </returns>
 		public IEnumerable<T> QueryDeferred<T>(string query, params object[] args) where T : new()
 		{
-			var cmd = CreateCommand(query, args);
+			var cmd = this.CreateCommand(query, args);
 			return cmd.ExecuteDeferredQuery<T>();
 		}
 

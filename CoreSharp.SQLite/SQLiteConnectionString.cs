@@ -14,9 +14,14 @@ namespace CoreSharp.SQLite
 
 		public string UniqueKey { get; }
 		public string DatabasePath { get; }
+
+		[Obsolete("This value has no effect")]
 		public bool StoreDateTimeAsTicks { get; }
+		[Obsolete("This value has no effect")]
 		public bool StoreTimeSpanAsTicks { get; }
+		[Obsolete("This value has no effect")]
 		public string DateTimeStringFormat { get; }
+		[Obsolete("This value has no effect")]
 		public System.Globalization.DateTimeStyles DateTimeStyle { get; }
 		public object Key { get; }
 		public SQLiteOpenFlags OpenFlags { get; }

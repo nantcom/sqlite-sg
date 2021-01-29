@@ -291,34 +291,38 @@ namespace CoreSharp.SQLite
 			{
 				throw new NotSupportedException("Joins are not supported.");
 			}
-			else
+
+			// order the field list so we can use faster code path
+            if (selectionList == "*")
+            {
+				selectionList = string.Join(",", this.Table.Columns.Select(c => c.ColumnName).ToArray());
+            }
+
+			var cmdText = "select " + selectionList + " from \"" + Table.TableName + "\"";
+			var args = new List<object>();
+			if (_where != null)
 			{
-				var cmdText = "select " + selectionList + " from \"" + Table.TableName + "\"";
-				var args = new List<object>();
-				if (_where != null)
-				{
-					var w = CompileExpr(_where, args);
-					cmdText += " where " + w.CommandText;
-				}
-				if ((_orderBys != null) && (_orderBys.Count > 0))
-				{
-					var t = string.Join(", ", _orderBys.Select(o => "\"" + o.ColumnName + "\"" + (o.Ascending ? "" : " desc")).ToArray());
-					cmdText += " order by " + t;
-				}
-				if (_limit.HasValue)
-				{
-					cmdText += " limit " + _limit.Value;
-				}
-				if (_offset.HasValue)
-				{
-					if (!_limit.HasValue)
-					{
-						cmdText += " limit -1 ";
-					}
-					cmdText += " offset " + _offset.Value;
-				}
-				return Connection.CreateCommand(cmdText, args.ToArray());
+				var w = CompileExpr(_where, args);
+				cmdText += " where " + w.CommandText;
 			}
+			if ((_orderBys != null) && (_orderBys.Count > 0))
+			{
+				var t = string.Join(", ", _orderBys.Select(o => "\"" + o.ColumnName + "\"" + (o.Ascending ? "" : " desc")).ToArray());
+				cmdText += " order by " + t;
+			}
+			if (_limit.HasValue)
+			{
+				cmdText += " limit " + _limit.Value;
+			}
+			if (_offset.HasValue)
+			{
+				if (!_limit.HasValue)
+				{
+					cmdText += " limit -1 ";
+				}
+				cmdText += " offset " + _offset.Value;
+			}
+			return Connection.CreateCommand(cmdText, args.ToArray());
 		}
 
 		class CompileResult
@@ -694,10 +698,10 @@ namespace CoreSharp.SQLite
 		{
 			if (!_deferred)
 			{
-				return GenerateCommand("*").ExecuteDeferredQuery<T>().ToList().GetEnumerator();
+				return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).ToList().GetEnumerator();
 			}
 
-			return GenerateCommand("*").ExecuteDeferredQuery<T>().GetEnumerator();
+			return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).GetEnumerator();
 		}
 
 		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
@@ -710,7 +714,7 @@ namespace CoreSharp.SQLite
 		/// </summary>
 		public List<T> ToList()
 		{
-			return GenerateCommand("*").ExecuteDeferredQuery<T>().ToList();
+			return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).ToList();
 		}
 
 		/// <summary>
@@ -718,7 +722,7 @@ namespace CoreSharp.SQLite
 		/// </summary>
 		public T[] ToArray()
 		{
-			return GenerateCommand("*").ExecuteDeferredQuery<T>().ToArray();
+			return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).ToArray();
 		}
 
 		/// <summary>
