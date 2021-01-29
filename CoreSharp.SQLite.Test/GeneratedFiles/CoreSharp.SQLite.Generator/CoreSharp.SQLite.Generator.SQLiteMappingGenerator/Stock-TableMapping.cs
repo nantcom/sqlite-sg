@@ -1,4 +1,27 @@
-﻿using System;
+﻿// MIT License
+
+// Copyright (c) 2021 NantCom Co., Ltd.
+// by Jirawat Padungkijjanont (jirawat[at]nant.co)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+using System;
 using System.Text.Json;
 using System.Collections.Generic;
 using CoreSharp.SQLite;
@@ -22,10 +45,10 @@ namespace CoreSharp.SQLite.Test
         /// </summary>
         public virtual CreateFlags Flags => (CreateFlags)258;
         
-        protected override string InsertCommand => "create virtual table if not exists \"Stock\" using fts3 (\"Id\" integer ,\"Symbol\" varchar ,\"Valuations\" varchar )";
-        protected override string ReplaceCommand => "insert or replace into \"Stock\"(\"Id\",\"Symbol\",\"Valuations\") values (?,?,?)";
-        protected override string UpdateCommand => "CANNOT UPDATE DUE TO NO PK";
-        protected override string DeleteCommand => "CANNOT DELETE DUE TO NO PK";
+        protected override string InsertCommand => "create virtual table if not exists \"Stock\" using fts3 (\"Id\" integer primary key autoincrement ,\"Symbol\" varchar )";
+        protected override string ReplaceCommand => "insert or replace into \"Stock\"(\"Id\",\"Symbol\") values (?,?)";
+        protected override string UpdateCommand => "update \"Stock\" set \"Symbol\" = ?  where Id = ? ";
+        protected override string DeleteCommand => "delete from \"Stock\" where \"Id\" = ?";
 
         /// <summary>
         /// Create New Instance of StockTableMapping
@@ -47,13 +70,9 @@ namespace CoreSharp.SQLite.Test
                 Setter = (target, value) => target.Symbol = (string)value,
                 Getter = (source) => source.Symbol
             };
-            this.Columns["Valuations"] = new StaticColumnMapping<Stock>()
-            {
-                ColumnName = "Valuations",
-                Setter = (target, value) => target.Valuations = (CoreSharp.SQLite.Test.Valuation[])value,
-                Getter = (source) => source.Valuations
-            };
 
+            
+                // has auto inc pk
             
         }
 
@@ -69,7 +88,7 @@ namespace CoreSharp.SQLite.Test
 
         public override void CreateTable(SQLiteConnection connection)
         {
-            connection.ExecuteNonQuery("create virtual table if not exists \"Stock\" using fts3 (\"Id\" integer ,\"Symbol\" varchar ,\"Valuations\" varchar )");
+            connection.ExecuteNonQuery("create virtual table if not exists \"Stock\" using fts3 (\"Id\" integer primary key autoincrement ,\"Symbol\" varchar )");
         }
         
         public override void MigrateTable(SQLiteConnection connection, List<string> existingColumns)
@@ -80,9 +99,8 @@ namespace CoreSharp.SQLite.Test
             var allColumns = new Dictionary<string, string>();
 
             /* var addCol = "alter table \"" + map.TableName + "\" add column " + Orm.SqlDecl(p, StoreDateTimeAsTicks, StoreTimeSpanAsTicks);*/
-            allColumns["Id"] = "alter table \"Stock\" add column \"Id\" integer ";
+            allColumns["Id"] = "alter table \"Stock\" add column \"Id\" integer primary key autoincrement ";
             allColumns["Symbol"] = "alter table \"Stock\" add column \"Symbol\" varchar ";
-            allColumns["Valuations"] = "alter table \"Stock\" add column \"Valuations\" varchar ";
 
             // remove columns that already exists in the database
             foreach (var column in existingColumns)
@@ -104,8 +122,6 @@ namespace CoreSharp.SQLite.Test
         public override void CreateIndex(SQLiteConnection connection)
         {
             
-            connection.ExecuteNonQuery( "create  index if not exists \"Stock_Id\" on \"Stock\"(\"Id\")" );
-            
         }
         
         public override int Insert(SQLiteConnection connection, Stock input, bool replace)
@@ -120,9 +136,7 @@ namespace CoreSharp.SQLite.Test
             var cmd = this.GetPreparedInsertCommand(connection);
             cmd.ParameterBinder = (stmt) =>
             {
-                SQLite3.BindInt( (stmt), 0, input.Id  );
-                SQLite3.BindText( (stmt), 1, input.Symbol , -1, new IntPtr(-1) );
-                SQLite3.BindText( (stmt), 2, JsonSerializer.Serialize(input.Valuations) , -1, new IntPtr(-1) );
+                SQLite3.BindText( (stmt), 0, input.Symbol , -1, _NegativePtr );
                 
             };
 
@@ -137,8 +151,7 @@ namespace CoreSharp.SQLite.Test
             cmd.ParameterBinder = (stmt) =>
             {
                 SQLite3.BindInt( (stmt), 0, input.Id  );
-                SQLite3.BindText( (stmt), 1, input.Symbol , -1, new IntPtr(-1) );
-                SQLite3.BindText( (stmt), 2, JsonSerializer.Serialize(input.Valuations) , -1, new IntPtr(-1) );
+                SQLite3.BindText( (stmt), 1, input.Symbol , -1, _NegativePtr );
                 
             };
 
@@ -147,7 +160,48 @@ namespace CoreSharp.SQLite.Test
             return 0;
         }
         
+        public override int Update(SQLiteConnection connection, Stock input)
+		{
+            var cmd = this.GetPreparedUpdateCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                SQLite3.BindText( (stmt), 0, input.Symbol , -1, _NegativePtr );
+                SQLite3.BindInt( (stmt), 1, input.Id  );
+            };
+            
+			return cmd.ExecuteNonQuery();
+        }
         
+		public override int Delete(SQLiteConnection connection, Stock input)
+		{
+            var cmd = this.GetPreparedDeleteCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                SQLite3.BindInt( (stmt), 0, input.Id  );
+            };
+            
+			return cmd.ExecuteNonQuery();
+        }
+        
+		public int DeleteByPrimaryKey(SQLiteConnection connection, int pk)
+		{
+            var cmd = this.GetPreparedDeleteCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                SQLite3.BindInt( (stmt), 0, pk  );
+			};
+			return cmd.ExecuteNonQuery();
+        }
+
+		public override int DeleteByPrimaryKey(SQLiteConnection connection, object pk)
+		{
+            var cmd = this.GetPreparedDeleteCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                SQLite3.BindInt( (stmt), 0, (int)pk  );
+			};
+			return cmd.ExecuteNonQuery();
+        }
 
         public override Stock ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null)
 		{
@@ -163,14 +217,8 @@ namespace CoreSharp.SQLite.Test
             {
                 switch (columnNames[i])
                 {
-                    case "Id":
-                        result.Id = SQLite3.ColumnInt( (stmt), i);
-                        break;        
                     case "Symbol":
                         result.Symbol = SQLite3.ColumnString( (stmt), i);
-                        break;        
-                    case "Valuations":
-                        result.Valuations = JsonSerializer.Deserialize<CoreSharp.SQLite.Test.Valuation[]>(SQLite3.ColumnString( (stmt), i));
                         break;        
                     
                     default:
@@ -185,9 +233,8 @@ namespace CoreSharp.SQLite.Test
         {
             Stock result = new();
             
-            result.Id = SQLite3.ColumnInt( (stmt), 0);
+            result.Id = (int)SQLite3.ColumnInt( (stmt), 0);
             result.Symbol = SQLite3.ColumnString( (stmt), 1);
-            result.Valuations = JsonSerializer.Deserialize<CoreSharp.SQLite.Test.Valuation[]>(SQLite3.ColumnString( (stmt), 2));
             
             return result;
         }

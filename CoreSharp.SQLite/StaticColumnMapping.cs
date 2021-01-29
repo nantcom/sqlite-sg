@@ -25,19 +25,17 @@ using System;
 
 namespace CoreSharp.SQLite
 {
-
-	/// <summary>
-	/// Flags from SQLite-net
-	/// </summary>
-	[Flags]
-	public enum CreateFlags
+	public sealed class StaticColumnMapping<T> : IColumnMapping<T>
 	{
-		None = 0x000,
-		ImplicitPK = 0x001,
-		ImplicitIndex = 0x002,
-		AllImplicit = 0x003,
-		AutoIncPK = 0x004,
-		FullTextSearch3 = 0x100,
-		FullTextSearch4 = 0x200
+		public Type SourceType => typeof(T);
+
+		/// <summary>
+		/// Gets the name of the Column
+		/// </summary>
+		public string ColumnName { get; set; }
+
+		public Action<T, object> Setter { get; set; }
+		public Func<T, object> Getter { get; set; }
 	}
+
 }

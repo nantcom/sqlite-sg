@@ -1,4 +1,6 @@
-﻿using System;
+﻿// this extension method is collected from many sample code from the internet
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;

@@ -1,4 +1,27 @@
-﻿using System;
+﻿// MIT License
+
+// Copyright (c) 2021 NantCom Co., Ltd.
+// by Jirawat Padungkijjanont (jirawat[at]nant.co)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+using System;
 using System.Text.Json;
 using System.Collections.Generic;
 using CoreSharp.SQLite;
@@ -108,7 +131,7 @@ namespace {{Namespace}}
             }            
             
             {{ if PrimaryKey != null && PrimaryKey.IsAutoGuid }}            
-            if ( input.{{PrimaryKey.PropertyName}} == Guid.Empty() )
+            if ( input.{{PrimaryKey.PropertyName}} == Guid.Empty )
             {
                 input.{{PrimaryKey.PropertyName}} = Guid.NewGuid();
             }
@@ -152,7 +175,6 @@ namespace {{Namespace}}
 
 		public override int Update(SQLiteConnection connection, {{MappedClassName}} input)
 		{
-
             var cmd = this.GetPreparedUpdateCommand(connection);
 			cmd.ParameterBinder = (stmt) =>
 			{
@@ -163,10 +185,11 @@ namespace {{Namespace}}
                 {{ $i = $i + 1 }}
                 {{- end }}
                 
-                {{$value = "input." + PrimaryKey.PropertyName-}}
+                {{-$value = "input." + PrimaryKey.PropertyName-}}
                 {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
-			};
-			cmd.ExecuteNonQuery();
+            };
+            
+			return cmd.ExecuteNonQuery();
         }
         
 		public override int Delete(SQLiteConnection connection, {{MappedClassName}} input)
@@ -176,19 +199,34 @@ namespace {{Namespace}}
 			{
                 {{$value = "input." + PrimaryKey.PropertyName-}}
                 {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" $value -}};
-			};
-			cmd.ExecuteNonQuery();
+            };
+            
+			return cmd.ExecuteNonQuery();
         }
         
+		public int DeleteByPrimaryKey(SQLiteConnection connection, {{PrimaryKey.PropertyType}} pk)
+		{
+            var cmd = this.GetPreparedDeleteCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                {{PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" "pk"-}};
+			};
+			return cmd.ExecuteNonQuery();
+        }
+
 		public override int DeleteByPrimaryKey(SQLiteConnection connection, object pk)
 		{
             var cmd = this.GetPreparedDeleteCommand(connection);
 			cmd.ParameterBinder = (stmt) =>
 			{
-                {{$value = "(" + PrimaryKey.PropertyType + ")pk"-}}
-                {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" $value -}};
+                {{if ( PrimaryKey.ColumnType | string.starts_with "varchar" )
+                    $value = "pk"
+                else
+                    $value = "(" + PrimaryKey.PropertyType + ")pk"
+                end-}}
+                {{PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" $value-}};
 			};
-			cmd.ExecuteNonQuery();
+			return cmd.ExecuteNonQuery();
         }
 
         {{-end }}

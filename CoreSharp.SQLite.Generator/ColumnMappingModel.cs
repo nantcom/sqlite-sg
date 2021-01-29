@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 
 namespace CoreSharp.SQLite.Generator
@@ -64,6 +65,7 @@ namespace CoreSharp.SQLite.Generator
             type = "float";
             _ClrTypeMapping["float"] = type;
             _ClrTypeMapping["double"] = type;
+            _ClrTypeMapping["decimal"] = type;
             _ClrTypeMapping["Decimal"] = type;
             _ClrTypeMapping["System.Decimal"] = type;
 
@@ -91,14 +93,14 @@ namespace CoreSharp.SQLite.Generator
             _ClrTypeMapping["System.DateTimeOffset"] = type;
             _ClrTypeMapping["System.Int64"] = type;
             _ClrTypeMapping["System.UInt32"] = type;
-            _ClrTypeMapping["System.UInt64"] = type;
 
             _ClrTypeMapping["long"] = type;
             _ClrTypeMapping["uint"] = type;
-            _ClrTypeMapping["ulong"] = type;
 
             type = "blob";
             _ClrTypeMapping["byte[]"] = type;
+            _ClrTypeMapping["Byte[]"] = type;
+            _ClrTypeMapping["System.Byte[]"] = type;
 
             type = "varchar(36)";
             _ClrTypeMapping["Guid"] = type;
@@ -197,11 +199,11 @@ namespace CoreSharp.SQLite.Generator
             this.ColumnName = property.Name;
 
             // Create dictioanry of parsers
-            var parsers = this.GetType().GetMethods()
+            var parsers = this.GetType().GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
                             .Where(m => m.Name.StartsWith("Parse"))
                             .ToDictionary(
                                 m => m.Name.Substring(5),
-                                m => (Parser)m.CreateDelegate(typeof(Parser)));
+                                m => (Parser)m.CreateDelegate(typeof(Parser), this));
 
             foreach (var attr in property.GetAttributes())
             {
@@ -222,7 +224,7 @@ namespace CoreSharp.SQLite.Generator
 
             // Auto Increment Primary Key Logic
             this.IsAutoIncrement = this.IsAutoIncrement || (this.IsPrimaryKey && ((createFlags & CreateFlags.AutoIncPK) == CreateFlags.AutoIncPK));
-            this.IsAutoGuid = this.IsAutoIncrement && this.PropertyType == "Guid";
+            this.IsAutoGuid = this.IsAutoIncrement && this.PropertyType.EndsWith( "Guid" );
             this.IsAutoIncrement = this.IsAutoIncrement && !this.IsAutoGuid;
 
             // Index Creation Logic
@@ -245,7 +247,7 @@ namespace CoreSharp.SQLite.Generator
 
         private void ParseColumnAttribute(AttributeData attr)
         {
-            this.ColumnName = (string)attr.GetAttributeConstructorValueByParameterName("name");
+            this.ColumnName = (string)attr.GetAttributeConstructorValueByParameterName("name") ?? this.PropertyName;
         }
 
         private void ParsePrimaryKeyAttribute(AttributeData attr)
@@ -261,9 +263,9 @@ namespace CoreSharp.SQLite.Generator
         private void ParseIndexedAttribute(AttributeData attr)
         {
             var index = new IndexModel();
-            index.Name = (string)attr.GetAttributeConstructorValueByParameterName("name");
-            index.Order = (int)attr.GetAttributeConstructorValueByParameterName("order");
-            index.Unique = (bool)attr.GetAttributeConstructorValueByParameterName("unique");
+            index.Name = (string)(attr.GetAttributeConstructorValueByParameterName("name") ?? "" );
+            index.Order = (int)(attr.GetAttributeConstructorValueByParameterName("order") ?? 0 );
+            index.Unique = (bool)(attr.GetAttributeConstructorValueByParameterName("unique") ?? false);
 
             this.IndexModels.Add(index);
         }
@@ -280,7 +282,7 @@ namespace CoreSharp.SQLite.Generator
 
         private void ParseMaxLengthAttribute(AttributeData attr)
         {
-            this.MaxStringLength = (int)attr.GetAttributeConstructorValueByParameterName("length");
+            this.MaxStringLength = (int)(attr.GetAttributeConstructorValueByParameterName("length") ?? 0);
         }
 
         private void ParseCollationAttribute(AttributeData attr)
@@ -327,6 +329,16 @@ namespace CoreSharp.SQLite.Generator
             {
                 this.ColumnType = databaseType;
                 return;
+            }
+
+            Func<string, bool> match = t => this.PropertyType.ToLowerInvariant().EndsWith(t);
+            var unabletosupport = new string[] { "uint64", "ulong" };
+            if (unabletosupport.Any(match))
+            {
+                if (this.IsMapped == true)
+                {
+                    throw new InvalidOperationException($"Cannot store ulong value {this.PropertyName} use [Ignore] to exclude this property");
+                }
             }
 
             // Cannot recognize the type, we will store it as JSON
@@ -383,6 +395,7 @@ namespace CoreSharp.SQLite.Generator
 
             var toInt32 = new string[] { "byte", "sbyte", "uint16", "int16", "ushort", "short" };
             var toInt64 = new string[] { "uint32", "uint" };
+            var toDouble = new string[] { "decimal" };
             var getTicks = new string[] { "timespan", "datetime" };
             var getUtcTicks = new string[] { "datetimeoffset" };
             var toStrings = new string[] { "guid", "uri", "uribuilder", "stringbuilder" };
@@ -395,6 +408,11 @@ namespace CoreSharp.SQLite.Generator
             if (toInt64.Any(match))
             {
                 valueExpression = $"(long){valueParameterText}";
+            }
+
+            if (toDouble.Any(match))
+            {
+                valueExpression = $"(double){valueParameterText}";
             }
 
             if (getTicks.Any(match))
@@ -415,12 +433,22 @@ namespace CoreSharp.SQLite.Generator
             if (this.IsStoringAsJSON)
             {
                 valueExpression = $"JsonSerializer.Serialize({valueExpression})";
-                extraParameters = ", -1, new IntPtr(-1)";
+                extraParameters = ", -1, _NegativePtr";
             }
 
             if (this.ColumnType.StartsWith("varchar"))
             {
-                extraParameters = ", -1, new IntPtr(-1)";
+                extraParameters = ", -1, _NegativePtr";
+            }
+
+            if (this.ColumnType.StartsWith("varchar(36)"))
+            {
+                extraParameters = ", 72, _NegativePtr";
+            }
+
+            if (this.ColumnType.StartsWith("blob"))
+            {
+                extraParameters = $", {valueExpression}.Length, _NegativePtr";
             }
 
             return $"SQLite3.Bind{functionName}( {statementParameterText}, {indexParameterText}, {valueExpression} {extraParameters} )";
@@ -436,9 +464,15 @@ namespace CoreSharp.SQLite.Generator
                 functionName = "String";
             }
 
+            if (functionName == "Blob")
+            {
+                functionName = "ByteArray";
+            }
+
             Func<string, bool> match = t => this.PropertyType.ToLowerInvariant().EndsWith(t);
 
             var fromTicks = new string[] { "timespan", "datetime" };
+            var castable = new string[] { "boolean", "byte", "sbyte", "int16", "int32", "int64", "int", "short", "ushort", "ulong", "decimal", "float" };
             var dateTimeOffset = new string[] { "datetimeoffset" };
             var fromStrings = new string[] { "guid", "uri", "uribuilder", "stringbuilder" };
 
@@ -449,7 +483,7 @@ namespace CoreSharp.SQLite.Generator
 
             if (dateTimeOffset.Any(match))
             {
-                initializer = "new " + this.PropertyType + "({0})";
+                initializer = "new " + this.PropertyType + "({0}, TimeSpan.Zero)";
             }
 
             if (fromStrings.Any(match))
@@ -457,11 +491,15 @@ namespace CoreSharp.SQLite.Generator
                 initializer = "new " + this.PropertyType + "({0})";
             }
 
+            if (castable.Any(match))
+            {
+                initializer = "(" + this.PropertyType + "){0}";
+            }
+
             if (this.IsStoringAsJSON)
             {
                 initializer = "JsonSerializer.Deserialize<" + this.PropertyType + ">({0})";
             }
-
 
             return string.Format( initializer, 
                     $"SQLite3.Column{functionName}( {statementParameterText}, {indexParameterText})" );
