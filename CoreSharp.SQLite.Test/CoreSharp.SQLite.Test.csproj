@@ -29,5 +29,9 @@
 		<ProjectReference Include="..\CoreSharp.SQLite.Generator\CoreSharp.SQLite.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 		<ProjectReference Include="..\CoreSharp.SQLite\CoreSharp.SQLite.csproj" />
 	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="GeneratedFiles\CoreSharp.SQLite.Generator\CoreSharp.SQLite.Generator.SQLiteMappingGenerator\" />
+	</ItemGroup>
 	
 </Project>

@@ -29,29 +29,28 @@ namespace CoreSharp.SQLite
 		public string CommandText { get; private set; } = string.Empty;
 
 		/// <summary>
+		/// Custom Parameter binder, if set - this connection will use this function instead
+		/// of internal parameter binding code in this instance
+		/// </summary>
+		public Action<Sqlite3Statement> ParameterBinder;
+
+		/// <summary>
 		/// Whether this instance is a prepared statement and will not be disposed
 		/// after execution. Beware that prepared statement can only be used by one thread at a time.
 		/// </summary>
         public bool IsPreparedStatement { get; private set; }
 
-		public event Action<object> OnInstanceCreated = delegate { };
+		/// <summary>
+		/// Whether Enums are converted to Text when binding parameter values
+		/// </summary>
+        public bool IsBindEnumAsText { get; private set; }
+
+        public event Action<object> OnInstanceCreated = delegate { };
 
         static SQLiteCommand()
         {
 			SQLiteCommand.BuildColumnReader();
 			SQLiteCommand.BuildBinders();
-		}
-
-		/// <summary>
-		/// Whether this is a prepared command
-		/// </summary>
-		/// <param name="conn"></param>
-		/// <param name="prepared"></param>
-		public SQLiteCommand(SQLiteConnection conn, bool prepared = false)
-		{
-			_Conn = conn;
-			this.CommandText = "";
-			this.IsPreparedStatement = prepared;
 		}
 
 		public SQLiteCommand(SQLiteConnection conn, string commandText, bool prepared = false)
@@ -64,8 +63,9 @@ namespace CoreSharp.SQLite
 		/// Sets a list of parameters to be bound to command, overriding existing list
 		/// </summary>
 		/// <param name="value"></param>
-		public void SetParameters( params object[] values )
+		public void SetParameters( bool enumAsText, params object[] values )
         {
+			this.IsBindEnumAsText = enumAsText;
 			_Parameters = values.Select(v => (Name: string.Empty, Value: v)).ToList();
 		}
 
@@ -73,8 +73,9 @@ namespace CoreSharp.SQLite
 		/// Sets a parameter list to be bound to command, overriding existing list
 		/// </summary>
 		/// <param name="value">Tuples of parameter names and value</param>
-		public void SetNamedParameters(params (string Name, object Value)[] parameters)
+		public void SetNamedParameters(bool enumAsText, params (string Name, object Value)[] parameters)
 		{
+			this.IsBindEnumAsText = enumAsText;
 			_Parameters = parameters.ToList();
 		}
 
@@ -82,8 +83,9 @@ namespace CoreSharp.SQLite
 		/// Sets a parameter list to be bound to command, overriding existing list
 		/// </summary>
 		/// <param name="value"></param>
-		public void SetNamedParameters(IEnumerable<KeyValuePair<string, object>> values)
+		public void SetNamedParameters(bool enumAsText, IEnumerable<KeyValuePair<string, object>> values)
 		{
+			this.IsBindEnumAsText = enumAsText;
 			_Parameters = values.Select(p => (Name: p.Key, Value: p.Value)).ToList();
 		}
 
@@ -112,6 +114,13 @@ namespace CoreSharp.SQLite
             {
 				stmt = SQLite3.Prepare2(_Conn.Handle, this.CommandText);
 			}
+
+			// use custom parameter binder instead of our own
+            if (this.ParameterBinder != null)
+            {
+				this.ParameterBinder(stmt);
+				return stmt;
+            }
 
             if (_Parameters?[0].Name != null)
 			{
@@ -196,25 +205,19 @@ namespace CoreSharp.SQLite
 				return;
             }
 
-			// Now we could possibly get an enum, retrieve cached info
-			var valueType = value.GetType();
-			var enumInfo = EnumCache.GetInfo(valueType);
-			if (enumInfo.IsEnum)
+            if (value.GetType().IsEnum)
 			{
-				var enumIntValue = Convert.ToInt32(value);
-				if (enumInfo.StoreAsText)
+				if (this.IsBindEnumAsText)
 				{
-					SQLite3.BindText(stmt, index, enumInfo.EnumValues[enumIntValue], -1, _NegativePtr);
+					SQLite3.BindText(stmt, index, value.ToString(), -1, _NegativePtr);
 				}
-				else
-				{
-					SQLite3.BindInt(stmt, index, enumIntValue);
+                else
+                {
+					SQLite3.BindInt(stmt, index, Convert.ToInt32(value));
 				}
 			}
-			else
-			{
-				throw new NotSupportedException("Cannot store type: " + Orm.GetType(value));
-			}
+
+			throw new NotSupportedException("Cannot bind type: " + Orm.GetType(value));
 		}
 
 		#endregion

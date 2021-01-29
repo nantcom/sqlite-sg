@@ -9,14 +9,16 @@ namespace CoreSharp.SQLite.Test
 	{
 		[PrimaryKey, AutoIncrement]
 		public int Id { get; set; }
-		public string Symbol { get; set; }
-	}
+        public string Symbol { get; set; }
+		
+		public Valuation[] Valuations { get; set; }
+    }
 
 	[Table("Valuation")]
 	public class Valuation
 	{
-		[PrimaryKey, AutoIncrement]
-		public int  Id { get; set; }
+		[PrimaryKey]
+		public Guid Id { get; set; }
 		[Indexed]
 		public int StockId { get; set; }
 		public DateTime Time { get; set; }

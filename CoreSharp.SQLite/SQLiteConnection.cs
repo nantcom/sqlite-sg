@@ -294,7 +294,7 @@ namespace CoreSharp.SQLite
 			var map = this.GetMapping<T>();
 
 			// Present a nice error if no columns specified
-			if (map.Columns.Length == 0)
+			if (map.Columns.Count == 0)
 			{
 				throw new Exception(string.Format("Cannot create a table without columns (does '{0}' have public properties?)", map.SourceType.FullName));
 			}
@@ -339,7 +339,7 @@ namespace CoreSharp.SQLite
 				throw SQLiteException.New(SQLite3.Result.Error, "Cannot create commands from unopened database");
 
 			var cmd = new SQLiteCommand(this, cmdText);
-			cmd.SetParameters(ps);
+			cmd.SetParameters(false, ps);
 			return cmd;
 		}
 
@@ -363,7 +363,7 @@ namespace CoreSharp.SQLite
 				throw SQLiteException.New(SQLite3.Result.Error, "Cannot create commands from unopened database");
 
 			var cmd = new SQLiteCommand(this, cmdText);
-			cmd.SetNamedParameters(args);
+			cmd.SetNamedParameters(false, args);
 			return cmd;
 		}
 

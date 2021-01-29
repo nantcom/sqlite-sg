@@ -2,6 +2,7 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Scriban;
+using Scriban.Runtime;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -34,17 +35,21 @@ namespace CoreSharp.SQLite.Generator
             var classSymbol = classSemanticModel.GetDeclaredSymbol(_Class);
 
             var tableAttribute = classSymbol.GetAttributes().Where(attr => attr.AttributeClass.Name == "TableAttribute").First();
+
             this.Model = new TableMappingModel(tableAttribute);
             this.Model.Namespace = root.GetNamespace();
             this.Model.MappedClassName = classSymbol.Name;
 
             var createFlags = (CreateFlags)this.Model.CreateFlagsInt;
 
-            var propertyMappings = from member in classSymbol.GetMembers()
+            var columnMappings = from member in classSymbol.GetMembers()
                                    where member is IPropertySymbol
-                                   select new PropertyMappingModel((IPropertySymbol)member, createFlags);
+                                   let colModel = new ColumnMappingModel((IPropertySymbol)member, createFlags)
+                                   where colModel.IsMapped
+                                   select colModel;
 
-            this.Model.ColumnMappingModels = propertyMappings.ToList();
+            this.Model.ColumnMappingModels = columnMappings.ToList();
+            this.Model.Update();
         }
 
         public string GenerateMappingClass()
@@ -61,14 +66,10 @@ namespace CoreSharp.SQLite.Generator
                 throw new InvalidOperationException($"Template parse error: {template.Messages}");
             }
 
-            var result = template.Render(this.Model, memberRenamer: member => member.Name);
+            var result = template.Render(this.Model, member => member.Name);
 
             return result;
         }
 
-        public string GenerateCreateTableFunction()
-        {
-            return "";
-        }
     }
 }

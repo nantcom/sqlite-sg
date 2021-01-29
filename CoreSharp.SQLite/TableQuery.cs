@@ -295,7 +295,7 @@ namespace CoreSharp.SQLite
 			// order the field list so we can use faster code path
             if (selectionList == "*")
             {
-				selectionList = string.Join(",", this.Table.Columns.Select(c => c.ColumnName).ToArray());
+				selectionList = string.Join(",", this.Table.Columns.Keys.ToArray());
             }
 
 			var cmdText = "select " + selectionList + " from \"" + Table.TableName + "\"";

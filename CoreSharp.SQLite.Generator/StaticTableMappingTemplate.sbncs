@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text.Json;
 using System.Collections.Generic;
 using CoreSharp.SQLite;
 
@@ -20,26 +21,30 @@ namespace {{Namespace}}
         /// CreateFlags as set in source {{CreateFlagsAsSpecified}}
         /// </summary>
         public virtual CreateFlags Flags => (CreateFlags){{CreateFlagsInt}};
+        
+        protected override string InsertCommand => "{{SQLCommands["Create"]}}";
+        protected override string ReplaceCommand => "{{SQLCommands["Replace"]}}";
+        protected override string UpdateCommand => "{{SQLCommands["Update"]}}";
+        protected override string DeleteCommand => "{{SQLCommands["Delete"]}}";
 
         /// <summary>
         /// Create New Instance of {{MappedClassName}}TableMapping
         /// </summary>
         public {{MappedClassName}}TableMapping()
         {
-            this.Columns = new IColumnMapping[{{array.size ColumnMappingModels}}];
+            this.Columns = new();
 
-            {{ $i = 0 }}
-            {{ for column in ColumnMappingModels}}
-
-            this.Columns[{{$i}}] = new StaticColumnMapping<{{MappedClassName}},{{column.PropertyType}}>()
+            {{for column in ColumnMappingModels}}
+            this.Columns["{{column.ColumnName}}"] = new StaticColumnMapping<{{MappedClassName}}>()
             {
-                ColumnName = "{{column.PropertyName}}",
-                Setter = (target, value) => target.{{column.PropertyName}} = value,
+                ColumnName = "{{column.ColumnName}}",
+                Setter = (target, value) => target.{{column.PropertyName}} = ({{column.PropertyType}})value,
                 Getter = (source) => source.{{column.PropertyName}}
             };
+            {{-end }}
 
-            {{$i = $i + 1}}
-
+            {{ if HasAutoIncrementPrimaryKey }}
+                // has auto inc pk
             {{ end }}
         }
 
@@ -51,6 +56,182 @@ namespace {{Namespace}}
         public override int DropTable( SQLiteConnection connection )
         {
             return connection.ExecuteNonQuery("drop table if exists \"{{TableName}}\"");
+        }
+
+        public override void CreateTable(SQLiteConnection connection)
+        {
+            connection.ExecuteNonQuery("{{SQLCommands["Create"]}}");
+        }
+        
+        public override void MigrateTable(SQLiteConnection connection, List<string> existingColumns)
+        {
+			// this dictionary contains list of columns and
+			// commands to alter table and create column
+			// existing column will remove item in this dictionary            
+            var allColumns = new Dictionary<string, string>();
+
+            /* var addCol = "alter table \"" + map.TableName + "\" add column " + Orm.SqlDecl(p, StoreDateTimeAsTicks, StoreTimeSpanAsTicks);*/
+
+            {{- for column in ColumnMappingModels}}
+            allColumns["{{column.ColumnName}}"] = "alter table \"{{TableName}}\" add column {{column.SQLColumnDeclaration}}";
+            {{-end }}
+
+            // remove columns that already exists in the database
+            foreach (var column in existingColumns)
+            {
+                if (allColumns.ContainsKey(column))
+                {
+					allColumns.Remove(column);
+                }
+            }
+
+            // allColumns now contains only missing column
+            // execute command to create them
+            foreach (var column in allColumns)
+            {
+				connection.ExecuteNonQuery(column.Value);
+			}
+        }
+        
+        public override void CreateIndex(SQLiteConnection connection)
+        {
+            {{ for cmd in IndexCommands}}
+            connection.ExecuteNonQuery( "{{cmd}}" );
+            {{ end }}
+        }
+        
+        public override int Insert(SQLiteConnection connection, {{MappedClassName}} input, bool replace)
+        {
+			if (replace)
+            {
+                return this.Replace(connection, input);
+            }            
+            
+            {{ if PrimaryKey != null && PrimaryKey.IsAutoGuid }}            
+            if ( input.{{PrimaryKey.PropertyName}} == Guid.Empty() )
+            {
+                input.{{PrimaryKey.PropertyName}} = Guid.NewGuid();
+            }
+            {{- end }}
+
+            var cmd = this.GetPreparedInsertCommand(connection);
+            cmd.ParameterBinder = (stmt) =>
+            {
+                {{ $i = 0 }}
+                {{- for column in InsertColumns-}}
+                {{-$value = "input." + column.PropertyName-}}
+                {{- column.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
+                {{ $i = $i + 1 }}
+                {{- end }}
+            };
+
+			cmd.ExecuteNonQuery();
+
+            return 0;
+        }
+
+		protected override int Replace(SQLiteConnection connection, {{MappedClassName}} input)
+		{
+			var cmd = this.GetPreparedReplaceCommand(connection);
+            cmd.ParameterBinder = (stmt) =>
+            {
+                {{ $i = 0 }}
+                {{- for column in ColumnMappingModels-}}
+                {{-$value = "input." + column.PropertyName-}}
+                {{- column.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
+                {{ $i = $i + 1 }}
+                {{- end }}
+            };
+
+			cmd.ExecuteNonQuery();
+
+            return 0;
+        }
+        
+        {{ if PrimaryKey != null-}}
+
+		public override int Update(SQLiteConnection connection, {{MappedClassName}} input)
+		{
+
+            var cmd = this.GetPreparedUpdateCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                {{ $i = 0 }}
+                {{- for column in UpdateColumns-}}
+                {{-$value = "input." + column.PropertyName-}}
+                {{- column.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
+                {{ $i = $i + 1 }}
+                {{- end }}
+                
+                {{$value = "input." + PrimaryKey.PropertyName-}}
+                {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
+			};
+			cmd.ExecuteNonQuery();
+        }
+        
+		public override int Delete(SQLiteConnection connection, {{MappedClassName}} input)
+		{
+            var cmd = this.GetPreparedDeleteCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                {{$value = "input." + PrimaryKey.PropertyName-}}
+                {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" $value -}};
+			};
+			cmd.ExecuteNonQuery();
+        }
+        
+		public override int DeleteByPrimaryKey(SQLiteConnection connection, object pk)
+		{
+            var cmd = this.GetPreparedDeleteCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+                {{$value = "(" + PrimaryKey.PropertyType + ")pk"-}}
+                {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" $value -}};
+			};
+			cmd.ExecuteNonQuery();
+        }
+
+        {{-end }}
+
+        public override {{MappedClassName}} ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null)
+		{
+            if (columnNames == null)
+            {
+				// static fast reading code
+				return this.ReadSequentialColumnFromStatement(stmt);
+            }
+
+            {{MappedClassName}} result = new();
+
+            for (int i = 0; i < columnNames.Length; i++)
+            {
+                switch (columnNames[i])
+                {
+                    {{ for column in UpdateColumns-}}
+
+                        case "{{column.ColumnName-}}":
+                        {{$value = "result." + column.PropertyName-}}
+                        {{ $value }} = {{ column.SQLite3ReadFunctionCall | string.replace "(index)" "i" }};
+                        break;        
+                    {{ end }}
+                    default:
+                        break;
+                }
+            }
+
+            return result;
+		}
+        
+        protected override {{MappedClassName}} ReadSequentialColumnFromStatement(Sqlite3Statement stmt)
+        {
+            {{MappedClassName}} result = new();
+            {{ $i = 0 }}
+            {{ for column in ColumnMappingModels-}}
+            {{-$value = "result." + column.PropertyName-}}
+            {{ $value }} = {{ column.SQLite3ReadFunctionCall | string.replace "(index)" $i -}};
+            {{ $i = $i + 1 }}
+            {{- end }}
+            return result;
         }
 
 

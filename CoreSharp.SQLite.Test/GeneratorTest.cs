@@ -10,7 +10,7 @@ namespace CoreSharp.SQLite.Test
         public void Test()
         {
             CoreSharp.SQLite.Test.ValuationTableMapping tableMapping;
-            
+
         }
     }
 }

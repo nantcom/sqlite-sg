@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace CoreSharp.SQLite.Generator
 {
-    internal static class RoslynExtensions
+    internal static class Extensions
     {
         public static IEnumerable<ITypeSymbol> GetBaseTypesAndThis(this ITypeSymbol type)
         {
@@ -82,6 +82,16 @@ namespace CoreSharp.SQLite.Generator
 
             // return the value passed to the attribute
             return constructorArg.Value;
+        }
+
+        /// <summary>
+        /// Escape Quote in the string
+        /// </summary>
+        /// <param name="input"></param>
+        /// <returns></returns>
+        public static string EscapeQuote(this string input)
+        {
+            return input.Replace("\"", "\\\"");
         }
     }
 }

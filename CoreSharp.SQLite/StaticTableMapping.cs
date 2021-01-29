@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text.Json;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -16,7 +17,7 @@ namespace CoreSharp.SQLite
         /// </summary>
         string TableName { get; }
 
-		IColumnMapping[] Columns { get; }
+		Dictionary<string, IColumnMapping<T>> Columns { get; }
 
         int DropTable(SQLiteConnection connection);
 
@@ -97,7 +98,7 @@ namespace CoreSharp.SQLite
         string GetMappedColumnName(string propertyName);
     }
 
-	public interface IColumnMapping
+	public interface IColumnMapping<T>
     {
         Type SourceType { get; }
 
@@ -105,9 +106,13 @@ namespace CoreSharp.SQLite
         /// Gets the name of the Column
         /// </summary>
         string ColumnName { get; }
+
+		Action<T, object> Setter { get; }
+
+		Func<T, object> Getter { get; }
 	}
 
-	public sealed class StaticColumnMapping<T,T2> : IColumnMapping
+	public sealed class StaticColumnMapping<T> : IColumnMapping<T>
     {
 		public Type SourceType => typeof(T);
 
@@ -116,24 +121,44 @@ namespace CoreSharp.SQLite
 		/// </summary>
 		public string ColumnName { get; set; }
 
-		public Action<T, T2> Setter { get; set; }
-		public Func<T, T2> Getter { get; set; }
+		public Action<T, object> Setter { get; set; }
+		public Func<T, object> Getter { get; set; }
 	}
 
-    public abstract class StaticTableMapping<T> : ITableMapping<T>
-    {
-        public abstract string TableName { get; }
+	public abstract class StaticTableMapping<T> : ITableMapping<T> where T : new()
+	{
+		public abstract string TableName { get; }
 
 		public virtual Type SourceType => typeof(T);
 
-		public IColumnMapping[] Columns { get; protected set; }
+		public Dictionary<string, IColumnMapping<T>> Columns { get; protected set; }
 
-        /// <summary>
-        /// Drops the table
-        /// </summary>
-        /// <param name="connection"></param>
-        /// <returns></returns>
-        public virtual int DropTable( SQLiteConnection connection )
+		/// <summary>
+		/// Provide an Insert Command
+		/// </summary>
+		protected abstract string InsertCommand { get; }
+
+		/// <summary>
+		/// Provide a replace command
+		/// </summary>
+		protected abstract string ReplaceCommand { get; }
+
+		/// <summary>
+		/// Provide an update command
+		/// </summary>
+		protected abstract string UpdateCommand { get; }
+
+		/// <summary>
+		/// Provide a Delete command
+		/// </summary>
+		protected abstract string DeleteCommand { get; }
+
+		/// <summary>
+		/// Drops the table
+		/// </summary>
+		/// <param name="connection"></param>
+		/// <returns></returns>
+		public virtual int DropTable( SQLiteConnection connection )
 		{
 			throw new NotImplementedException();
 			/*var query = $"drop table if exists \"{this.TableName}\"";
@@ -291,235 +316,154 @@ namespace CoreSharp.SQLite
 			throw new NotImplementedException();
         }
 
+		/// <summary>
+		/// TODO: Implement actual caching logic
+		/// </summary>
+		/// <returns></returns>
+		protected virtual SQLiteCommand GetPreparedInsertCommand(SQLiteConnection connection)
+        {
+			var cmd = new SQLiteCommand(connection, this.InsertCommand, true);
+			return cmd;
+		}
+
+		/// <summary>
+		/// TODO: Implement actual caching logic
+		/// </summary>
+		/// <returns></returns>
+		protected virtual SQLiteCommand GetPreparedReplaceCommand(SQLiteConnection connection)
+		{
+			var cmd = new SQLiteCommand(connection, this.ReplaceCommand, true);
+			return cmd;
+		}
+
+		/// <summary>
+		/// TODO: Implement actual caching logic
+		/// </summary>
+		/// <returns></returns>
+		protected virtual SQLiteCommand GetPreparedUpdateCommand(SQLiteConnection connection)
+		{
+			var cmd = new SQLiteCommand(connection, this.UpdateCommand, true);
+			return cmd;
+		}
+
+		/// <summary>
+		/// TODO: Implement actual caching logic
+		/// </summary>
+		/// <returns></returns>
+		protected virtual SQLiteCommand GetPreparedDeleteCommand(SQLiteConnection connection)
+		{
+			var cmd = new SQLiteCommand(connection, this.DeleteCommand, true);
+			return cmd;
+		}
+
+		/// <summary>
+		/// Perform insert or replace operation
+		/// </summary>
+		/// <param name="connection"></param>
+		/// <param name="input"></param>
+		/// <param name="replace"></param>
+		/// <returns></returns>
 		public virtual int Insert(SQLiteConnection connection, T input, bool replace)
 		{
 			throw new NotImplementedException();
 
-			string cmdText = "insert into table_name(field1,field2) values (?,?) ";
+			// skeleton code
+
+			if (replace)
+			{
+				return this.Replace(connection, input);
+			}
+
+			var cmdText = "insert into table_name(field1,field2) values (?,?) ";
+			var cmd = this.GetPreparedInsertCommand(connection);
+			cmd.ParameterBinder = (stmt) =>
+			{
+				// implement the binding call
+				JsonSerializer.Serialize(input);
+			};
+			cmd.ExecuteNonQuery();
 
 			// loop through all property in the same order as insert command generation
 			//SQLite3.BindInt(stmt, 0, 0);
 
-			if (replace)
-            {
-				return this.Replace(connection, input);
-			}
-
-			/* Generate this code as static version
-		
-			// Create GUID automatically
-			if (map.PK != null && map.PK.IsAutoGuid)
-			{
-				// set PK only when input has no PK value
-				if (map.PK.GetValue(obj).Equals(Guid.Empty))
-				{
-					map.PK.SetValue(obj, Guid.NewGuid());
-				}
-			}
-
-			// GetInsertCommand function
-			{
-			var cols = map.InsertColumns;
-			string insertSql;
-			if (cols.Length == 0 && map.Columns.Length == 1 && map.Columns[0].IsAutoInc)
-			{
-				insertSql = string.Format("insert {1} into \"{0}\" default values", map.TableName, extra);
-			}
-			else
-			{
-				var replacing = string.Compare(extra, "OR REPLACE", StringComparison.OrdinalIgnoreCase) == 0;
-
-				if (replacing)
-				{
-					cols = map.InsertOrReplaceColumns;
-				}
-
-				insertSql = string.Format("insert {3} into \"{0}\"({1}) values ({2})", map.TableName,
-								   string.Join(",", (from c in cols
-													 select "\"" + c.Name + "\"").ToArray()),
-								   string.Join(",", (from c in cols
-													 select "?").ToArray()), extra);
-
-			}
-
-			var insertCommand = new PreparedSqlLiteInsertCommand(this, insertSql);
-			return insertCommand;
-			}
-
-			
-			var replacing = string.Compare(extra, "OR REPLACE", StringComparison.OrdinalIgnoreCase) == 0;
-
-			var cols = replacing ? map.InsertOrReplaceColumns : map.InsertColumns;
-			var vals = new object[cols.Length];
-			for (var i = 0; i < vals.Length; i++)
-			{
-				vals[i] = cols[i].GetValue(obj);
-			}
-
-			var insertCmd = GetInsertCommand(map, extra);
-
-			// A SQLite prepared statement can be bound for only one operation at a time.
-				try
-				{
-					count = insertCmd.ExecuteNonQuery(vals);
-				}
-				catch (SQLiteException ex)
-				{
-					if (SQLite3.ExtendedErrCode(this.Handle) == SQLite3.ExtendedResult.ConstraintNotNull)
-					{
-						throw NotNullConstraintViolationException.New(ex.Result, ex.Message, map, obj);
-					}
-					throw;
-				}
-
-				if (map.HasAutoIncPK)
-				{
-					var id = SQLite3.LastInsertRowid(Handle);
-					map.SetAutoIncPK(obj, id);
-				}
-
-			 */
 		}
 
 		protected virtual int Replace(SQLiteConnection connection, T obj)
 		{
 			throw new NotImplementedException();
-
-			/*Generate this code as static version
-			
-			cols = map.InsertOrReplaceColumns;
-				insertSql = string.Format("insert {3} into \"{0}\"({1}) values ({2})", map.TableName,
-								   string.Join(",", (from c in cols
-													 select "\"" + c.Name + "\"").ToArray()),
-								   string.Join(",", (from c in cols
-													 select "?").ToArray()), extra);
-
-			 */
 		}
 
+		/// <summary>
+		/// Perform update operation
+		/// </summary>
+		/// <param name="connection"></param>
+		/// <param name="input"></param>
+		/// <returns></returns>
 		public virtual int Update(SQLiteConnection connection, T input)
 		{
 			throw new NotImplementedException();
-			/*
-			 
-			var pk = map.PK;
-
-			if (pk == null)
-			{
-				throw new NotSupportedException("Cannot update " + map.TableName + ": it has no PK");
-			}
-
-			var cols = from p in map.Columns
-					   where p != pk
-					   select p;
-			var vals = from c in cols
-					   select c.GetValue(obj);
-			var ps = new List<object>(vals);
-			if (ps.Count == 0)
-			{
-				// There is a PK but no accompanying data,
-				// so reset the PK to make the UPDATE work.
-				cols = map.Columns;
-				vals = from c in cols
-					   select c.GetValue(obj);
-				ps = new List<object>(vals);
-			}
-			ps.Add(pk.GetValue(obj));
-			var q = string.Format("update \"{0}\" set {1} where {2} = ? ", map.TableName, string.Join(",", (from c in cols
-																											select "\"" + c.Name + "\" = ? ").ToArray()), pk.Name);
-
-			try
-			{
-				rowsAffected = Execute(q, ps.ToArray());
-			}
-			catch (SQLiteException ex)
-			{
-
-				if (ex.Result == SQLite3.Result.Constraint && SQLite3.ExtendedErrCode(this.Handle) == SQLite3.ExtendedResult.ConstraintNotNull)
-				{
-					throw NotNullConstraintViolationException.New(ex, map, obj);
-				}
-
-				throw ex;
-			}
-
-
-			 */
 		}
 
+		/// <summary>
+		/// Perform delete operation, using Object's Primary Key
+		/// </summary>
+		/// <param name="conn"></param>
+		/// <param name="input"></param>
+		/// <returns></returns>
 		public virtual int Delete(SQLiteConnection conn, T input)
 		{
 			throw new NotImplementedException();
-			/*
-			var pk = map.PK;
-			if (pk == null)
-			{
-				throw new NotSupportedException("Cannot delete " + map.TableName + ": it has no PK");
-			}
-			var q = string.Format("delete from \"{0}\" where \"{1}\" = ?", map.TableName, pk.Name);
-			var count = Execute(q, pk.GetValue(objectToDelete));
-			if (count > 0)
-				OnTableChanged(map, NotifyTableChangedAction.Delete);
-			return count;*/
 		}
 
-		public virtual int DeleteByPrimaryKey(SQLiteConnection conn, object input)
-		{
-			throw new NotImplementedException();
-			/*
-			var pk = map.PK;
-			if (pk == null)
-			{
-				throw new NotSupportedException("Cannot delete " + map.TableName + ": it has no PK");
-			}
-			var q = string.Format("delete from \"{0}\" where \"{1}\" = ?", map.TableName, pk.Name);
-			var count = Execute(q, pk.GetValue(objectToDelete));
-			if (count > 0)
-				OnTableChanged(map, NotifyTableChangedAction.Delete);
-			return count;*/
-		}
-
+		/// <summary>
+		/// Delete all items from the table
+		/// </summary>
+		/// <param name="conn"></param>
+		/// <returns></returns>
 		public virtual int DeleteAll(SQLiteConnection conn)
 		{
 			var query = $"delete from \"{this.TableName}\"";
 			return conn.ExecuteNonQuery(query);
 		}
 
+		/// <summary>
+		/// Delete an object by its primary key
+		/// </summary>
+		/// <param name="conn"></param>
+		/// <param name="key"></param>
+		/// <returns></returns>
+		public virtual int DeleteByPrimaryKey( SQLiteConnection conn, object key)
+		{
+			throw new NotImplementedException();
+		}
+
+		/// <summary>
+		/// Read result from SQL Statement and create new instance of T
+		/// </summary>
+		/// <param name="stmt"></param>
+		/// <param name="columnNames"></param>
+		/// <returns></returns>
 		public virtual T ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null)
 		{
-			/*
-				// Prepare Mapping for the given statement first
-			  
-			 	var cols = new TableMappingColumn[SQLite3.ColumnCount(stmt)];
+            if (columnNames == null)
+            {
+				// static fast reading code
+				return this.ReadSequentialColumnFromStatement(stmt);
+            }
 
-				for (int i = 0; i < cols.Length; i++)
-				{
-					var name = SQLite3.ColumnName16(stmt, i);
-					cols[i] = map.FindColumn(name);
-				}
-
-				// actually read the object
-				
-				while (SQLite3.Step(stmt) == SQLite3.Result.Row)
-				{
-					var obj = Activator.CreateInstance(map.MappedType);
-					for (int i = 0; i < cols.Length; i++)
-					{
-						if (cols[i] == null)
-							continue;
-
-						var colType = SQLite3.ColumnType(stmt, i);
-						var val = ReadCol(stmt, i, colType, cols[i].ColumnType);
-						cols[i].SetValue(obj, val);
-					}
-					OnInstanceCreated(obj);
-					yield return (T)obj;
-				}
-
-			 */
+            for (int i = 0; i < columnNames.Length; i++)
+            {
+                switch (columnNames[i])
+                {
+                    default:
+                        break;
+                }
+            }
 
 			throw new NotImplementedException();
 		}
+
+		protected abstract T ReadSequentialColumnFromStatement(Sqlite3Statement stmt);
 
         public string GetMappedColumnName(string propertyName)
         {
