@@ -1,4 +1,6 @@
-﻿using Microsoft.CodeAnalysis;
+﻿// this extension method is collected from many sample code from the internet
+
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
 using System.Collections.Generic;
@@ -76,6 +78,11 @@ namespace CoreSharp.SQLite.Generator
 
             // get the index of the parameter
             int parameterIdx = attributeData.AttributeConstructor.Parameters.IndexOf(parameterSymbol);
+
+            if (parameterIdx == -1)
+            {
+                return null;
+            }
 
             // get the construct argument corresponding to this parameter
             TypedConstant constructorArg = attributeData.ConstructorArguments[parameterIdx];

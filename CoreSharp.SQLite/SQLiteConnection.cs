@@ -1,18 +1,40 @@
-﻿using System;
+﻿// This code file contains code from 
+// https://github.com/praeclarum/sqlite-net
+// with heavy modifications
+
+// MIT License
+
+// Copyright (c) 2021 NantCom Co., Ltd.
+// by Jirawat Padungkijjanont (jirawat[at]nant.co)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+
+using System;
 using System.Collections;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Collections.Generic;
-using System.Reflection;
+using System.Diagnostics;
 using System.Linq;
-using System.Linq.Expressions;
-using System.Text;
 using System.Threading;
 
-using Sqlite3DatabaseHandle = System.IntPtr;
 using Sqlite3BackupHandle = System.IntPtr;
-using Sqlite3Statement = System.IntPtr;
-
+using Sqlite3DatabaseHandle = System.IntPtr;
 
 namespace CoreSharp.SQLite
 {
@@ -38,12 +60,12 @@ namespace CoreSharp.SQLite
 		/// <summary>
 		/// Gets the database path used by this connection.
 		/// </summary>
-		public string DatabasePath { get; private set; }
+		public string DatabasePath { get; }
 
 		/// <summary>
 		/// Gets the SQLite library version number. 3007014 would be v3.7.14
 		/// </summary>
-		public int LibVersionNumber { get; private set; }
+		public int LibVersionNumber { get; }
 
 		/// <summary>
 		/// Whether to write queries to <see cref="Tracer"/> during execution.
@@ -60,7 +82,7 @@ namespace CoreSharp.SQLite
 		/// The DateTimeStyles value to use when parsing a DateTime property string.
 		/// </summary>
 		/// <value>The date time style.</value>
-		internal System.Globalization.DateTimeStyles DateTimeStyle { get; private set; }
+		internal System.Globalization.DateTimeStyles DateTimeStyle { get; }
 
 		/// <summary>
 		/// Constructs a new SQLiteConnection and opens a SQLite database specified by databasePath.
@@ -131,7 +153,7 @@ namespace CoreSharp.SQLite
 			Handle = handle;
 			if (r != SQLite3.Result.OK)
 			{
-				throw SQLiteException.New(r, String.Format("Could not open database file: {0} ({1})", DatabasePath, r));
+				throw new SQLiteException(r, String.Format("Could not open database file: {0} ({1})", DatabasePath, r));
 			}
 			_open = true;
 
@@ -222,7 +244,7 @@ namespace CoreSharp.SQLite
 			if (r != SQLite3.Result.OK)
 			{
 				string msg = SQLite3.GetErrmsg(Handle);
-				throw SQLiteException.New(r, msg);
+				throw new SQLiteException(r, msg);
 			}
 		}
 
@@ -336,7 +358,7 @@ namespace CoreSharp.SQLite
 		public SQLiteCommand CreateCommand(string cmdText, params object[] ps)
 		{
 			if (!_open)
-				throw SQLiteException.New(SQLite3.Result.Error, "Cannot create commands from unopened database");
+				throw new SQLiteException(SQLite3.Result.Error, "Cannot create commands from unopened database");
 
 			var cmd = new SQLiteCommand(this, cmdText);
 			cmd.SetParameters(false, ps);
@@ -360,7 +382,7 @@ namespace CoreSharp.SQLite
 		public SQLiteCommand CreateCommand(string cmdText, Dictionary<string, object> args)
 		{
 			if (!_open)
-				throw SQLiteException.New(SQLite3.Result.Error, "Cannot create commands from unopened database");
+				throw new SQLiteException(SQLite3.Result.Error, "Cannot create commands from unopened database");
 
 			var cmd = new SQLiteCommand(this, cmdText);
 			cmd.SetNamedParameters(false, args);
@@ -896,7 +918,7 @@ namespace CoreSharp.SQLite
 			var r = SQLite3.Open(destinationDatabasePath, out var destHandle);
 			if (r != SQLite3.Result.OK)
 			{
-				throw SQLiteException.New(r, "Failed to open destination database");
+				throw new SQLiteException(r, "Failed to open destination database");
 			}
 
 			// Init the backup
@@ -923,7 +945,7 @@ namespace CoreSharp.SQLite
 			SQLite3.Close(destHandle);
 			if (r != SQLite3.Result.OK)
 			{
-				throw SQLiteException.New(r, msg);
+				throw new SQLiteException(r, msg);
 			}
 		}
 
@@ -957,7 +979,7 @@ namespace CoreSharp.SQLite
 						if (r != SQLite3.Result.OK)
 						{
 							string msg = SQLite3.GetErrmsg(Handle);
-							throw SQLiteException.New(r, msg);
+							throw new SQLiteException(r, msg);
 						}
 					}
 					else

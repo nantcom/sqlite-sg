@@ -1,4 +1,7 @@
-﻿//
+﻿// This code file contains code from 
+// https://github.com/praeclarum/sqlite-net
+// with minor or no modifications
+//
 // Copyright (c) 2009-2019 Krueger Systems, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -41,54 +44,22 @@ namespace CoreSharp.SQLite
 {
 	public class SQLiteException : Exception
 	{
-		public SQLite3.Result Result { get; private set; }
+		public SQLite3.Result Result { get; }
 
-		protected SQLiteException(SQLite3.Result r, string message) : base(message)
+		public SQLiteException(SQLite3.Result r, string message) : base(message)
 		{
 			Result = r;
-		}
-
-		public static SQLiteException New(SQLite3.Result r, string message)
-		{
-			return new SQLiteException(r, message);
 		}
 	}
 
 	public class NotNullConstraintViolationException : SQLiteException
 	{
-		public IEnumerable<TableMappingColumn> Columns { get; protected set; }
-
-		protected NotNullConstraintViolationException(SQLite3.Result r, string message)
-			: this(r, message, null, null)
-		{
-
-		}
-
-		protected NotNullConstraintViolationException(SQLite3.Result r, string message, TableMapping mapping, object obj)
+		public NotNullConstraintViolationException(SQLite3.Result r, string message)
 			: base(r, message)
 		{
-			if (mapping != null && obj != null)
-			{
-				this.Columns = from c in mapping.Columns
-							   where c.IsNullable == false && c.GetValue(obj) == null
-							   select c;
-			}
+
 		}
 
-		public static new NotNullConstraintViolationException New(SQLite3.Result r, string message)
-		{
-			return new NotNullConstraintViolationException(r, message);
-		}
-
-		public static NotNullConstraintViolationException New(SQLite3.Result r, string message, TableMapping mapping, object obj)
-		{
-			return new NotNullConstraintViolationException(r, message, mapping, obj);
-		}
-
-		public static NotNullConstraintViolationException New(SQLiteException exception, TableMapping mapping, object obj)
-		{
-			return new NotNullConstraintViolationException(exception.Result, exception.Message, mapping, obj);
-		}
 	}
 
 	[Flags]
@@ -105,8 +76,8 @@ namespace CoreSharp.SQLite
 
 	public class NotifyTableChangedEventArgs : EventArgs
 	{
-		public Type TableType { get; private set; }
-		public NotifyTableChangedAction Action { get; private set; }
+		public Type TableType { get; }
+		public NotifyTableChangedAction Action { get; }
 
 		public NotifyTableChangedEventArgs(Type table, NotifyTableChangedAction action)
 		{

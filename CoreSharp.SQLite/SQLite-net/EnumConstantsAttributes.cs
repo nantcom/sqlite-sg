@@ -1,4 +1,29 @@
-﻿using System;
+﻿// This code file contains code from 
+// https://github.com/praeclarum/sqlite-net
+// with minor or no modifications
+//
+// Copyright (c) 2009-2019 Krueger Systems, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -47,12 +72,12 @@ namespace CoreSharp.SQLite
 	[AttributeUsage(AttributeTargets.Class)]
 	public class TableAttribute : Attribute
 	{
-		public string Name { get; private set; }
+		public string Name { get; }
 
 		/// <summary>
 		/// Specify additional create flags for the table
 		/// </summary>
-		public CreateFlags CreateFlags { get; private set; }
+		public CreateFlags CreateFlags { get; }
 
 		public TableAttribute(string name, CreateFlags flags = CreateFlags.None)
 		{
@@ -64,7 +89,7 @@ namespace CoreSharp.SQLite
 	[AttributeUsage(AttributeTargets.Property)]
 	public class ColumnAttribute : Attribute
 	{
-		public string Name { get; private set; }
+		public string Name { get; }
 
 		public ColumnAttribute(string name)
 		{
@@ -85,14 +110,16 @@ namespace CoreSharp.SQLite
 	[AttributeUsage(AttributeTargets.Property)]
 	public class IndexedAttribute : Attribute
 	{
-		public string Name { get; private set; }
-		public int Order { get;  private set; }
-		public bool Unique { get;  private set; }
+		public string Name { get; }
+		public int Order { get; }
+		public bool Unique { get; }
 
-		public IndexedAttribute()
-		{
-		}
-
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <param name="name"></param>
+		/// <param name="order"></param>
+		/// <param name="unique"></param>
 		public IndexedAttribute(string name, int order, bool unique)
 		{
 			this.Name = name;
@@ -114,7 +141,7 @@ namespace CoreSharp.SQLite
 	[AttributeUsage(AttributeTargets.Property)]
 	public class MaxLengthAttribute : Attribute
 	{
-		public int Value { get; private set; }
+		public int Value { get; }
 
 		public MaxLengthAttribute(int length)
 		{
@@ -142,7 +169,7 @@ namespace CoreSharp.SQLite
 	[AttributeUsage(AttributeTargets.Property)]
 	public class CollationAttribute : Attribute
 	{
-		public CollationType Value { get; private set; }
+		public CollationType Value { get; }
 
 		public CollationAttribute(CollationType collation)
 		{

@@ -1,24 +1,40 @@
-﻿using System;
-using System.Collections;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Collections.Generic;
-using System.Reflection;
-using System.Linq;
-using System.Linq.Expressions;
-using System.Text;
-using System.Threading;
+﻿// MIT License
 
-using Sqlite3DatabaseHandle = System.IntPtr;
-using Sqlite3BackupHandle = System.IntPtr;
+// Copyright (c) 2021 NantCom Co., Ltd.
+// by Jirawat Padungkijjanont (jirawat[at]nant.co)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
 using Sqlite3Statement = System.IntPtr;
 
 namespace CoreSharp.SQLite
 {
-	/// <summary>
-	/// Represents a SQLite Command to be executed
-	/// </summary>
-	public partial class SQLiteCommand : IDisposable
+    /// <summary>
+    /// Represents a SQLite Command to be executed
+    /// </summary>
+    public partial class SQLiteCommand : IDisposable
 	{
 		SQLiteConnection _Conn;
 		private List<(string Name, object Value)> _Parameters;
@@ -217,7 +233,7 @@ namespace CoreSharp.SQLite
 				}
 			}
 
-			throw new NotSupportedException("Cannot bind type: " + Orm.GetType(value));
+			throw new NotSupportedException("Cannot bind type: " + value.GetType().Name);
 		}
 
 		#endregion
@@ -249,17 +265,17 @@ namespace CoreSharp.SQLite
 				else if (r == SQLite3.Result.Error)
 				{
 					string msg = SQLite3.GetErrmsg(_Conn.Handle);
-					throw SQLiteException.New(r, msg);
+					throw new SQLiteException(r, msg);
 				}
 				else if (r == SQLite3.Result.Constraint)
 				{
 					if (SQLite3.ExtendedErrCode(_Conn.Handle) == SQLite3.ExtendedResult.ConstraintNotNull)
 					{
-						throw NotNullConstraintViolationException.New(r, SQLite3.GetErrmsg(_Conn.Handle));
+						throw new NotNullConstraintViolationException(r, SQLite3.GetErrmsg(_Conn.Handle));
 					}
 				}
 
-				throw SQLiteException.New(r, SQLite3.GetErrmsg(_Conn.Handle));
+				throw new SQLiteException(r, SQLite3.GetErrmsg(_Conn.Handle));
 			}
             finally
 			{
