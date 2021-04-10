@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace CoreSharp.SQLite.Test
+namespace NC.SQLite.Test
 {
     [Table("Stock", flags: CreateFlags.ImplicitIndex | CreateFlags.FullTextSearch3)]
     public class Stock
@@ -78,4 +78,5 @@ namespace CoreSharp.SQLite.Test
         public Guid Guid { get; set; }
         public System.Guid Guid_system { get; set; }
     }
+
 }

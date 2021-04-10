@@ -1,7 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using CoreSharp.SQLite.Test;
+using NC.SQLite.Test;
 
-namespace CoreSharp.SQLite.Test
+namespace NC.SQLite.Test
 {
     [TestClass]
     public class GeneratorTest
@@ -9,7 +9,7 @@ namespace CoreSharp.SQLite.Test
         [TestMethod]
         public void Test()
         {
-            CoreSharp.SQLite.Test.ValuationTableMapping tableMapping;
+            SQL
         }
     }
 }

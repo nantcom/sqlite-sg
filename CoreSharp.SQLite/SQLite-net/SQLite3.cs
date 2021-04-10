@@ -38,7 +38,7 @@ using Sqlite3DatabaseHandle = System.IntPtr;
 using Sqlite3BackupHandle = System.IntPtr;
 using Sqlite3Statement = System.IntPtr;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
 	/// <summary>
 	/// The class which handle actual SQLite3 interop

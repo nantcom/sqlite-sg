@@ -27,7 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
 
 

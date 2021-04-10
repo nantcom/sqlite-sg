@@ -38,7 +38,7 @@ using Sqlite3DatabaseHandle = System.IntPtr;
 using Sqlite3BackupHandle = System.IntPtr;
 using Sqlite3Statement = System.IntPtr;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
 
 	public abstract class BaseTableQuery
@@ -51,11 +51,11 @@ namespace CoreSharp.SQLite
 	}
 
 
-	public class TableQuery<T> : BaseTableQuery, IEnumerable<T>
+	public class TableQuery<T> : BaseTableQuery
 	{
-		public SQLiteConnection Connection { get; }
+		private SQLiteConnection Connection { get; }
 
-		public ITableMapping<T> Table { get; }
+		private ITableMapping<T> Table { get; }
 
 		Expression _where;
 		List<Ordering> _orderBys;
@@ -86,7 +86,6 @@ namespace CoreSharp.SQLite
 		{
 			var q = new TableQuery<T>(Connection, Table);
 			q._where = _where;
-			q._deferred = _deferred;
 			if (_orderBys != null)
 			{
 				q._orderBys = new List<Ordering>(_orderBys);
@@ -122,44 +121,6 @@ namespace CoreSharp.SQLite
 		}
 
 		/// <summary>
-		/// Delete all the rows that match this query.
-		/// </summary>
-		public int Delete()
-		{
-			return Delete(null);
-		}
-
-		/// <summary>
-		/// Delete all the rows that match this query and the given predicate.
-		/// </summary>
-		public int Delete(Expression<Func<T, bool>> predExpr)
-		{
-			if (_limit.HasValue || _offset.HasValue)
-				throw new InvalidOperationException("Cannot delete with limits or offsets");
-
-			if (_where == null && predExpr == null)
-				throw new InvalidOperationException("No condition specified");
-
-			var pred = _where;
-
-			if (predExpr != null && predExpr.NodeType == ExpressionType.Lambda)
-			{
-				var lambda = (LambdaExpression)predExpr;
-				pred = pred != null ? Expression.AndAlso(pred, lambda.Body) : lambda.Body;
-			}
-
-			var args = new List<object>();
-			var cmdText = "delete from \"" + Table.TableName + "\"";
-			var w = CompileExpr(pred, args);
-			cmdText += " where " + w.CommandText;
-
-			var command = Connection.CreateCommand(cmdText, args.ToArray());
-
-			int result = command.ExecuteNonQuery();
-			return result;
-		}
-
-		/// <summary>
 		/// Yields a given number of elements from the query and then skips the remainder.
 		/// </summary>
 		public TableQuery<T> Take(int n)
@@ -176,22 +137,6 @@ namespace CoreSharp.SQLite
 		{
 			var q = Clone();
 			q._offset = n;
-			return q;
-		}
-
-		/// <summary>
-		/// Returns the element at a given index
-		/// </summary>
-		public T ElementAt(int index)
-		{
-			return Skip(index).Take(1).First();
-		}
-
-		bool _deferred;
-		public TableQuery<T> Deferred()
-		{
-			var q = Clone();
-			q._deferred = true;
 			return q;
 		}
 
@@ -347,6 +292,27 @@ namespace CoreSharp.SQLite
 				}
 				cmdText += " offset " + _offset.Value;
 			}
+			return Connection.CreateCommand(cmdText, args.ToArray());
+		}
+
+		private SQLiteCommand GenerateDeleteCommand(bool allowEmptyWhere = false)
+        {
+			var cmdText = $"DELETE FROM {this.Table.TableName}";
+
+			var args = new List<object>();
+			if (_where != null)
+			{
+				var w = CompileExpr(_where, args);
+				cmdText += $" WHERE {w.CommandText}";
+			}
+            else
+            {
+                if (allowEmptyWhere == false)
+                {
+					throw new InvalidOperationException("This will remove data from entire table. It is not allowed");
+                }
+            }
+
 			return Connection.CreateCommand(cmdText, args.ToArray());
 		}
 
@@ -706,83 +672,60 @@ namespace CoreSharp.SQLite
 		/// <summary>
 		/// Execute SELECT COUNT(*) on the query
 		/// </summary>
-		public int Count()
+		public int ResultCount()
 		{
-			return GenerateCommand("count(*)").ExecuteScalar<int>();
+			return this.GenerateCommand("count(*)").ExecuteScalar<int>();
 		}
 
 		/// <summary>
-		/// Execute SELECT COUNT(*) on the query with an additional WHERE clause.
+		/// Gets the result of this query
 		/// </summary>
-		public int Count(Expression<Func<T, bool>> predExpr)
+		/// <returns></returns>
+		public IEnumerable<T> Result()
 		{
-			return Where(predExpr).Count();
+			return this.GenerateCommand("*").ExecuteDeferredQueryMapped<T>(this.Table);
 		}
 
-		public IEnumerator<T> GetEnumerator()
+		/// <summary>
+		/// Gets the result of this query with custom reader. This is the faster implementation, use SQLite3.ColumnXXX and index provided by dictionary to read column data
+		/// </summary>
+		/// <returns></returns>
+		public IEnumerable<T2> Select<T2>(Func<Sqlite3Statement, IDictionary<string, IColumnMapping>, T2> reader)
 		{
-			if (!_deferred)
+			var cmd = this.GenerateCommand("*");
+			return cmd.ExecuteDeferredQuery<T2>( (stmt) =>
 			{
-				return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).ToList().GetEnumerator();
-			}
-
-			return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).GetEnumerator();
-		}
-
-		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
-		{
-			return GetEnumerator();
+				return reader(stmt, this.Table.Columns);
+			});
 		}
 
 		/// <summary>
-		/// Queries the database and returns the results as a List.
+		/// Gets the result of this query with custom reader. This is slower than other overload but easiser to use
 		/// </summary>
-		public List<T> ToList()
+		/// <returns></returns>
+		public IEnumerable<T2> Select<T2>(Func<IReader, T2> reader)
 		{
-			return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).ToList();
+			var cmd = this.GenerateCommand("*");
+			return cmd.ExecuteDeferredQuery<T2>( reader );
+		}
+
+
+		/// <summary>
+		/// Delete all items matching this query
+		/// </summary>
+		/// <returns></returns>
+		public int Delete()
+		{
+			return this.GenerateDeleteCommand().ExecuteNonQuery();
 		}
 
 		/// <summary>
-		/// Queries the database and returns the results as an array.
+		/// Delete all items matching this query, allowing empty where clause
 		/// </summary>
-		public T[] ToArray()
+		/// <returns></returns>
+		public int Truncate()
 		{
-			return GenerateCommand("*").ExecuteDeferredQuery<T>(staticFieldList: true).ToArray();
-		}
-
-		/// <summary>
-		/// Returns the first element of this query.
-		/// </summary>
-		public T First()
-		{
-			var query = Take(1);
-			return query.ToList().First();
-		}
-
-		/// <summary>
-		/// Returns the first element of this query, or null if no element is found.
-		/// </summary>
-		public T FirstOrDefault()
-		{
-			var query = Take(1);
-			return query.ToList().FirstOrDefault();
-		}
-
-		/// <summary>
-		/// Returns the first element of this query that matches the predicate.
-		/// </summary>
-		public T First(Expression<Func<T, bool>> predExpr)
-		{
-			return Where(predExpr).First();
-		}
-
-		/// <summary>
-		/// Returns the first element of this query that matches the predicate, or null
-		/// if no element is found.
-		/// </summary>
-		public T FirstOrDefault(Expression<Func<T, bool>> predExpr)
-		{
-			return Where(predExpr).FirstOrDefault();
+			return this.GenerateDeleteCommand(true).ExecuteNonQuery();
 		}
 	}
 

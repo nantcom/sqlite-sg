@@ -1,0 +1,53 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>netstandard2.0</TargetFramework>
+		<LangVersion>9.0</LangVersion>
+		
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<IncludeBuildOutput>false</IncludeBuildOutput>
+
+
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<PackageId>NC-SQLite.SourceGen</PackageId>
+		<Version>0.1.0</Version>
+		<Authors>Jirawat Padungkijjanont</Authors>
+		<Company>NantCom Co., Ltd.</Company>
+		<Description>Source Generator Package for Generating Object-Relational Mapping classes for NC.SQLite Package.</Description>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<Copyright>2021 NantCom Co., Ltd.</Copyright>
+		<RepositoryUrl>https://github.com/nantcom/sqlite-sg</RepositoryUrl>
+		<RepositoryType>Git</RepositoryType>
+		<PackageTags>sqlite, sqlite-net, sourcegen</PackageTags>
+		<PackageReleaseNotes>Initial Test Release</PackageReleaseNotes>
+
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- Package the generator in the analyzer directory of the nuget package -->
+		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+	</ItemGroup>
+	<PropertyGroup>
+		<PackageScribanIncludeSource>true</PackageScribanIncludeSource>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+		<PackageReference Include="Microsoft.CodeAnalysis.Common" Version="3.9.0" />
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="3.9.0" />
+		<PackageReference Include="NC-SQLite" Version="0.2.0" />
+		<PackageReference Include="Scriban" Version="3.6.0" IncludeAssets="Build" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Remove="Database.sbncs" />
+		<None Remove="StaticTableMappingTemplate.sbncs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Database.sbncs" />
+		<EmbeddedResource Include="StaticTableMappingTemplate.sbncs" />
+	</ItemGroup>
+
+
+
+</Project>

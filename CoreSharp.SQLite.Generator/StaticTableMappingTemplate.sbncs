@@ -24,7 +24,7 @@
 using System;
 using System.Text.Json;
 using System.Collections.Generic;
-using CoreSharp.SQLite;
+using NC.SQLite;
 
 using Sqlite3Statement = System.IntPtr;
 
@@ -33,7 +33,7 @@ namespace {{Namespace}}
     /// <summary>
     /// Auto-Generated Table Mapping Class for {{MappedClassName}}
     /// </summary>
-    public class {{MappedClassName}}TableMapping : StaticTableMapping<{{MappedClassName}}>
+    public partial class {{MappedClassName}}TableMapping : StaticTableMapping<{{MappedClassName}}>
     {
         /// <summary>
         /// Name of the Table created in SQLite Database (Set to {{TableName}})
@@ -45,7 +45,7 @@ namespace {{Namespace}}
         /// </summary>
         public virtual CreateFlags Flags => (CreateFlags){{CreateFlagsInt}};
         
-        protected override string InsertCommand => "{{SQLCommands["Create"]}}";
+        protected override string InsertCommand => "{{SQLCommands["Insert"]}}";
         protected override string ReplaceCommand => "{{SQLCommands["Replace"]}}";
         protected override string UpdateCommand => "{{SQLCommands["Update"]}}";
         protected override string DeleteCommand => "{{SQLCommands["Delete"]}}";
@@ -55,20 +55,26 @@ namespace {{Namespace}}
         /// </summary>
         public {{MappedClassName}}TableMapping()
         {
-            this.Columns = new();
+            this.Columns = new();            
 
+            {{ $i = 0 }}
             {{for column in ColumnMappingModels}}
             this.Columns["{{column.ColumnName}}"] = new StaticColumnMapping<{{MappedClassName}}>()
             {
                 ColumnName = "{{column.ColumnName}}",
                 Setter = (target, value) => target.{{column.PropertyName}} = ({{column.PropertyType}})value,
-                Getter = (source) => source.{{column.PropertyName}}
-            };
+                Getter = (source) => source.{{column.PropertyName}},
+                PropertyName = "{{column.PropertyName}}",
+                ColumnIndex = {{$i}}
+            };            
+            {{ $i = $i + 1 }}
             {{-end }}
 
-            {{ if HasAutoIncrementPrimaryKey }}
-                // has auto inc pk
-            {{ end }}
+            
+            {{for column in ColumnMappingModels}}
+            _MappedColumnNames["{{column.PropertyName}}"] = "{{column.ColumnName}}";
+            {{-end }}
+
         }
 
         /// <summary>
@@ -121,13 +127,18 @@ namespace {{Namespace}}
             {{ for cmd in IndexCommands}}
             connection.ExecuteNonQuery( "{{cmd}}" );
             {{ end }}
-        }
+        } 
         
         public override int Insert(SQLiteConnection connection, {{MappedClassName}} input, bool replace)
         {
 			if (replace)
             {
-                return this.Replace(connection, input);
+                {{ if HasAutoIncrementPrimaryKey }}
+                if ( input.{{PrimaryKey.PropertyName}} != default({{PrimaryKey.PropertyType}}) )
+                {
+                    return this.Replace(connection, input);
+                }
+                {{ end }}
             }            
             
             {{ if PrimaryKey != null && PrimaryKey.IsAutoGuid }}            
@@ -140,7 +151,7 @@ namespace {{Namespace}}
             var cmd = this.GetPreparedInsertCommand(connection);
             cmd.ParameterBinder = (stmt) =>
             {
-                {{ $i = 0 }}
+                {{ $i = 1 }}
                 {{- for column in InsertColumns-}}
                 {{-$value = "input." + column.PropertyName-}}
                 {{- column.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
@@ -148,17 +159,30 @@ namespace {{Namespace}}
                 {{- end }}
             };
 
-			cmd.ExecuteNonQuery();
+			var count = cmd.ExecuteNonQuery();
+            {{ if HasAutoIncrementPrimaryKey }}
+            if ( count == 1 )
+            {
+                input.{{PrimaryKey.PropertyName}} = ({{PrimaryKey.PropertyType}})connection.GetLastInsertedId();
+            }
+            {{ end }}                
 
-            return 0;
+            return count;
         }
 
 		protected override int Replace(SQLiteConnection connection, {{MappedClassName}} input)
 		{
+            {{ if HasAutoIncrementPrimaryKey }}
+            if ( input.{{PrimaryKey.PropertyName}} == default({{PrimaryKey.PropertyType}}) )
+            {
+                throw new InvalidOperationException("For Replace, Primary key must not be default value");
+            }
+            {{ end }}       
+
 			var cmd = this.GetPreparedReplaceCommand(connection);
             cmd.ParameterBinder = (stmt) =>
             {
-                {{ $i = 0 }}
+                {{ $i = 1 }}
                 {{- for column in ColumnMappingModels-}}
                 {{-$value = "input." + column.PropertyName-}}
                 {{- column.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
@@ -166,9 +190,15 @@ namespace {{Namespace}}
                 {{- end }}
             };
 
-			cmd.ExecuteNonQuery();
+			var count = cmd.ExecuteNonQuery();
+            {{ if HasAutoIncrementPrimaryKey }}
+            if ( count == 1 )
+            {
+                input.{{PrimaryKey.PropertyName}} = ({{PrimaryKey.PropertyType}})connection.GetLastInsertedId();
+            }
+            {{ end }}                
 
-            return 0;
+            return count;
         }
         
         {{ if PrimaryKey != null-}}
@@ -178,7 +208,7 @@ namespace {{Namespace}}
             var cmd = this.GetPreparedUpdateCommand(connection);
 			cmd.ParameterBinder = (stmt) =>
 			{
-                {{ $i = 0 }}
+                {{ $i = 1 }}
                 {{- for column in UpdateColumns-}}
                 {{-$value = "input." + column.PropertyName-}}
                 {{- column.SQLite3BindFunctionCall | string.replace "(index)" $i | string.replace "(value)" $value -}};
@@ -198,7 +228,7 @@ namespace {{Namespace}}
 			cmd.ParameterBinder = (stmt) =>
 			{
                 {{$value = "input." + PrimaryKey.PropertyName-}}
-                {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" $value -}};
+                {{- PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 1 | string.replace "(value)" $value -}};
             };
             
 			return cmd.ExecuteNonQuery();
@@ -209,7 +239,7 @@ namespace {{Namespace}}
             var cmd = this.GetPreparedDeleteCommand(connection);
 			cmd.ParameterBinder = (stmt) =>
 			{
-                {{PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" "pk"-}};
+                {{PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 1 | string.replace "(value)" "pk"-}};
 			};
 			return cmd.ExecuteNonQuery();
         }
@@ -224,43 +254,14 @@ namespace {{Namespace}}
                 else
                     $value = "(" + PrimaryKey.PropertyType + ")pk"
                 end-}}
-                {{PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 0 | string.replace "(value)" $value-}};
+                {{PrimaryKey.SQLite3BindFunctionCall | string.replace "(index)" 1 | string.replace "(value)" $value-}};
 			};
 			return cmd.ExecuteNonQuery();
         }
 
         {{-end }}
 
-        public override {{MappedClassName}} ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null)
-		{
-            if (columnNames == null)
-            {
-				// static fast reading code
-				return this.ReadSequentialColumnFromStatement(stmt);
-            }
-
-            {{MappedClassName}} result = new();
-
-            for (int i = 0; i < columnNames.Length; i++)
-            {
-                switch (columnNames[i])
-                {
-                    {{ for column in UpdateColumns-}}
-
-                        case "{{column.ColumnName-}}":
-                        {{$value = "result." + column.PropertyName-}}
-                        {{ $value }} = {{ column.SQLite3ReadFunctionCall | string.replace "(index)" "i" }};
-                        break;        
-                    {{ end }}
-                    default:
-                        break;
-                }
-            }
-
-            return result;
-		}
-        
-        protected override {{MappedClassName}} ReadSequentialColumnFromStatement(Sqlite3Statement stmt)
+        public override {{MappedClassName}} ReadStatementResult(Sqlite3Statement stmt)
         {
             {{MappedClassName}} result = new();
             {{ $i = 0 }}
@@ -271,7 +272,6 @@ namespace {{Namespace}}
             {{- end }}
             return result;
         }
-
 
     }
 }

@@ -9,7 +9,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 
-namespace CoreSharp.SQLite.Generator
+namespace NC.SQLite.SourceGen
 {
     public class IndexModel
     {

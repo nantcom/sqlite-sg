@@ -23,9 +23,9 @@
 //
 using System;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
-	public sealed class StaticColumnMapping<T> : IColumnMapping<T>
+	public sealed class StaticColumnMapping<T> : IColumnMapping
 	{
 		public Type SourceType => typeof(T);
 
@@ -36,6 +36,10 @@ namespace CoreSharp.SQLite
 
 		public Action<T, object> Setter { get; set; }
 		public Func<T, object> Getter { get; set; }
+
+        public string PropertyName { get; set; }
+
+		public int ColumnIndex { get; set; }
 	}
 
 }

@@ -28,7 +28,7 @@ using Microsoft.CodeAnalysis.Text;
 using System.Collections.Generic;
 using System.Text;
 
-namespace CoreSharp.SQLite.Generator
+namespace NC.SQLite.SourceGen
 {
     [Generator]
     public class SQLiteMappingGenerator : ISourceGenerator
@@ -40,7 +40,8 @@ namespace CoreSharp.SQLite.Generator
                 foreach (var cls in receiver.MappedClasses)
                 {
                     cls.Parse(context.Compilation);
-                    context.AddSource(cls.Model.MappedClassName + "-TableMapping.cs", SourceText.From(cls.GenerateMappingClass(), Encoding.UTF8));
+                    context.AddSource(cls.Model.MappedClassName + "-TableMapping.cs",
+                        SourceText.From(cls.GenerateMappingClass(), Encoding.UTF8));
                 }
             }
         }
@@ -49,8 +50,6 @@ namespace CoreSharp.SQLite.Generator
         {
             context.RegisterForSyntaxNotifications(() => new SQLiteMappingReceiver());
         }
-
-
     }
 
     public sealed class SQLiteMappingReceiver : ISyntaxReceiver
@@ -64,8 +63,7 @@ namespace CoreSharp.SQLite.Generator
         {
             if (syntaxNode is ClassDeclarationSyntax typeDeclarationSyntax)
             {
-                foreach (var attributeList in
-                 typeDeclarationSyntax.AttributeLists)
+                foreach (var attributeList in typeDeclarationSyntax.AttributeLists)
                 {
                     foreach (var attribute in attributeList.Attributes)
                     {

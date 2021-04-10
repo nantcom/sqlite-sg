@@ -23,9 +23,9 @@
 //
 using System;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
-    public interface IColumnMapping<T>
+    public interface IColumnMapping
     {
         Type SourceType { get; }
 
@@ -34,8 +34,15 @@ namespace CoreSharp.SQLite
         /// </summary>
         string ColumnName { get; }
 
-        Action<T, object> Setter { get; }
+        /// <summary>
+        /// Gets the name of mapped property
+        /// </summary>
+        string PropertyName { get; }
 
-        Func<T, object> Getter { get; }
+        /// <summary>
+        /// Index of the column in the table
+        /// </summary>
+        int ColumnIndex { get; }
+
     }
 }

@@ -1,21 +1,25 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFramework>net5.0</TargetFramework>
 
 		<IsPackable>false</IsPackable>
-		<LangVersion>Preview</LangVersion>
+		<LangVersion>latest</LangVersion>
 		
 		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
 		<CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)\..\GeneratedFiles</CompilerGeneratedFilesOutputPath>
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <Compile Remove="GeneratedFiles\**\*" />
+	  <Compile Remove="GeneratedFiles\**" />
+	  <EmbeddedResource Remove="GeneratedFiles\**" />
+	  <None Remove="GeneratedFiles\**" />
 	</ItemGroup>
 
 	<ItemGroup>
-	  <None Include="GeneratedFiles\**\*" />
+		<ProjectReference Include="..\CoreSharp.SQLite.Generator\NC.SQLite.SourceGen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+		
+		<ProjectReference Include="..\CoreSharp.SQLite\NC.SQLite.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -25,13 +29,4 @@
 		<PackageReference Include="coverlet.collector" Version="1.3.0" />
 	</ItemGroup>
 
-	<ItemGroup>
-		<ProjectReference Include="..\CoreSharp.SQLite.Generator\CoreSharp.SQLite.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="..\CoreSharp.SQLite\CoreSharp.SQLite.csproj" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <Folder Include="GeneratedFiles\CoreSharp.SQLite.Generator\CoreSharp.SQLite.Generator.SQLiteMappingGenerator\" />
-	</ItemGroup>
-	
 </Project>

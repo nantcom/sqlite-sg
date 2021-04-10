@@ -23,12 +23,11 @@
 //
 
 using System;
-using System.Text.Json;
 using System.Collections.Generic;
 
 using Sqlite3Statement = System.IntPtr;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
 
 	/// <summary>
@@ -40,11 +39,13 @@ namespace CoreSharp.SQLite
 	{
 		protected static readonly IntPtr _NegativePtr = new IntPtr(-1);
 
+		protected Dictionary<string, string> _MappedColumnNames = new();
+
 		public abstract string TableName { get; }
 
 		public virtual Type SourceType => typeof(T);
 
-		public Dictionary<string, IColumnMapping<T>> Columns { get; protected set; }
+		public Dictionary<string, IColumnMapping> Columns { get; protected set; }
 
 		/// <summary>
 		/// Provide an Insert Command
@@ -230,42 +231,42 @@ namespace CoreSharp.SQLite
         }
 
 		/// <summary>
-		/// TODO: Implement actual caching logic
+		/// 
 		/// </summary>
 		/// <returns></returns>
 		protected virtual SQLiteCommand GetPreparedInsertCommand(SQLiteConnection connection)
         {
-			var cmd = new SQLiteCommand(connection, this.InsertCommand, true);
+			var cmd = new SQLiteCommand(connection, this.InsertCommand);
 			return cmd;
 		}
 
 		/// <summary>
-		/// TODO: Implement actual caching logic
+		/// 
 		/// </summary>
 		/// <returns></returns>
 		protected virtual SQLiteCommand GetPreparedReplaceCommand(SQLiteConnection connection)
 		{
-			var cmd = new SQLiteCommand(connection, this.ReplaceCommand, true);
+			var cmd = new SQLiteCommand(connection, this.ReplaceCommand);
 			return cmd;
 		}
 
 		/// <summary>
-		/// TODO: Implement actual caching logic
+		/// 
 		/// </summary>
 		/// <returns></returns>
 		protected virtual SQLiteCommand GetPreparedUpdateCommand(SQLiteConnection connection)
 		{
-			var cmd = new SQLiteCommand(connection, this.UpdateCommand, true);
+			var cmd = new SQLiteCommand(connection, this.UpdateCommand);
 			return cmd;
 		}
 
 		/// <summary>
-		/// TODO: Implement actual caching logic
+		/// 
 		/// </summary>
 		/// <returns></returns>
 		protected virtual SQLiteCommand GetPreparedDeleteCommand(SQLiteConnection connection)
 		{
-			var cmd = new SQLiteCommand(connection, this.DeleteCommand, true);
+			var cmd = new SQLiteCommand(connection, this.DeleteCommand);
 			return cmd;
 		}
 
@@ -336,31 +337,16 @@ namespace CoreSharp.SQLite
 		/// <param name="stmt"></param>
 		/// <param name="columnNames"></param>
 		/// <returns></returns>
-		public virtual T ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null)
-		{
-            if (columnNames == null)
-            {
-				// static fast reading code
-				return this.ReadSequentialColumnFromStatement(stmt);
-            }
+		public abstract T ReadStatementResult(Sqlite3Statement stmt);
 
-            for (int i = 0; i < columnNames.Length; i++)
-            {
-                switch (columnNames[i])
-                {
-                    default:
-                        break;
-                }
-            }
-
-			throw new NotImplementedException();
-		}
-
-		protected abstract T ReadSequentialColumnFromStatement(Sqlite3Statement stmt);
-
-        public string GetMappedColumnName(string propertyName)
+		/// <summary>
+		/// Gets Mapped Column Name
+		/// </summary>
+		/// <param name="propertyName"></param>
+		/// <returns></returns>
+		public virtual string GetMappedColumnName(string propertyName)
         {
-            throw new NotImplementedException();
+			return _MappedColumnNames[propertyName];
         }
     }
 }

@@ -26,7 +26,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace CoreSharp.SQLite.Generator
+namespace NC.SQLite.SourceGen
 {
     public class TableMappingModel
     {

@@ -23,7 +23,7 @@
 //
 using System;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
 
 	/// <summary>

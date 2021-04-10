@@ -26,7 +26,7 @@ using System.Collections.Generic;
 
 using Sqlite3Statement = System.IntPtr;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
 	public interface ITableMapping<T>
 	{
@@ -37,7 +37,7 @@ namespace CoreSharp.SQLite
 		/// </summary>
 		string TableName { get; }
 
-		Dictionary<string, IColumnMapping<T>> Columns { get; }
+		Dictionary<string, IColumnMapping> Columns { get; }
 
 		int DropTable(SQLiteConnection connection);
 
@@ -108,7 +108,7 @@ namespace CoreSharp.SQLite
 		/// </summary>
 		/// <param name="stmt"></param>
 		/// <returns></returns>
-		T ReadStatementResult(Sqlite3Statement stmt, string[] columnNames = null);
+		T ReadStatementResult(Sqlite3Statement stmt);
 
 		/// <summary>
 		/// Gets ampped column name from given property name

@@ -28,7 +28,7 @@ using Scriban;
 using System;
 using System.Linq;
 
-namespace CoreSharp.SQLite.Generator
+namespace NC.SQLite.SourceGen
 {
 
     public sealed class SQLiteTableMappingParser

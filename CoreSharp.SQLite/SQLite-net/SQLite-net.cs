@@ -40,7 +40,7 @@ using Sqlite3Statement = System.IntPtr;
 
 #pragma warning disable 1591 // XML Doc Comments
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
 	public class SQLiteException : Exception
 	{

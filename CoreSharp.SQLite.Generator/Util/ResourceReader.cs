@@ -7,7 +7,7 @@ using System.Reflection;
 using System.Text;
 using System.Linq;
 
-namespace CoreSharp.SQLite.Generator
+namespace NC.SQLite.SourceGen
 {
     internal class ResourceReader
     {

@@ -29,32 +29,38 @@ using System.Text;
 
 using Sqlite3Statement = System.IntPtr;
 
-namespace CoreSharp.SQLite
+namespace NC.SQLite
 {
+	public interface IReader
+    {
+		T ReadCurrentRow<T>(int columnIndex);
+
+		T ReadCurrentRow<T>(string column);
+	}
+
     /// <summary>
     /// Represents a SQLite Command to be executed
     /// </summary>
-    public partial class SQLiteCommand : IDisposable
+    public partial class SQLiteCommand : IDisposable, IReader
 	{
 		SQLiteConnection _Conn;
 		private List<(string Name, object Value)> _Parameters;
 
 		/// <summary>
-		/// Command Text
+		/// Whether to automatically finalize the statement
 		/// </summary>
-		public string CommandText { get; private set; } = string.Empty;
+        public bool AutoDispose { get; set; }
+
+        /// <summary>
+        /// Command Text
+        /// </summary>
+        public string CommandText { get; private set; } = string.Empty;
 
 		/// <summary>
 		/// Custom Parameter binder, if set - this connection will use this function instead
 		/// of internal parameter binding code in this instance
 		/// </summary>
 		public Action<Sqlite3Statement> ParameterBinder;
-
-		/// <summary>
-		/// Whether this instance is a prepared statement and will not be disposed
-		/// after execution. Beware that prepared statement can only be used by one thread at a time.
-		/// </summary>
-        public bool IsPreparedStatement { get; private set; }
 
 		/// <summary>
 		/// Whether Enums are converted to Text when binding parameter values
@@ -69,9 +75,10 @@ namespace CoreSharp.SQLite
 			SQLiteCommand.BuildBinders();
 		}
 
-		public SQLiteCommand(SQLiteConnection conn, string commandText, bool prepared = false)
+		public SQLiteCommand(SQLiteConnection conn, string commandText, bool autoDispose = true)
 		{
 			_Conn = conn;
+			this.AutoDispose = autoDispose;
 			this.CommandText = commandText;
 		}
 
@@ -116,69 +123,68 @@ namespace CoreSharp.SQLite
 		/// <returns></returns>
 		private Sqlite3Statement Prepare()
 		{
-			Sqlite3Statement stmt;
-
-			if (this.IsPreparedStatement)
-            {
-                if (_PreparedStatement == IntPtr.Zero)
-                {
-					_PreparedStatement = SQLite3.Prepare2(_Conn.Handle, this.CommandText);
-				}
-				stmt = _PreparedStatement;
+			if (_PreparedStatement == IntPtr.Zero)
+			{
+				_PreparedStatement = SQLite3.Prepare2(_Conn.Handle, this.CommandText);
+				_ColNameCache = null;
 			}
-			else
-            {
-				stmt = SQLite3.Prepare2(_Conn.Handle, this.CommandText);
+
+			if (_Parameters?.Count == 0)
+			{
+				return _PreparedStatement;
 			}
 
 			// use custom parameter binder instead of our own
-            if (this.ParameterBinder != null)
+			if (this.ParameterBinder != null)
             {
-				this.ParameterBinder(stmt);
-				return stmt;
+				this.ParameterBinder(_PreparedStatement);
+				return _PreparedStatement;
             }
 
-            if (_Parameters?[0].Name != null)
-			{
-				foreach (var p in _Parameters)
-				{
-					var index = SQLite3.BindParameterIndex(stmt, p.Name);
-					this.BindParameter(stmt, index, p.Value);
-				}
-			}
-            else
+			// Named parameter or index based parameter
+            if (string.IsNullOrEmpty(_Parameters[0].Name))
 			{
 				int nextIdx = 1;
 				foreach (var p in _Parameters)
 				{
 					var index = nextIdx++;
-					this.BindParameter(stmt, index, p);
+					this.BindParameter(_PreparedStatement, index, p.Value);
 				}
-
+			}
+            else
+			{
+				foreach (var p in _Parameters)
+				{
+					var index = SQLite3.BindParameterIndex(_PreparedStatement, p.Name);
+					this.BindParameter(_PreparedStatement, index, p.Value);
+				}
 			}
 
-			return stmt;
+			return _PreparedStatement;
 		}
 
 		private static readonly IntPtr _NegativePtr = new IntPtr(-1);
 		private delegate void Binder(Sqlite3Statement stmt, int index, object value);
 		private static readonly Dictionary<Type, Binder> _Binders = new();
 
+		private static Binder _BindInt = (stmt, index, value) => SQLite3.BindInt(stmt, index, Convert.ToInt32(value));
+		private static Binder _BindInt64 = (stmt, index, value) => SQLite3.BindInt64(stmt, index, Convert.ToInt64(value));
+		private static Binder _BindDouble = (stmt, index, value) => SQLite3.BindDouble(stmt, index, Convert.ToDouble(value));
+
 		private static void BuildBinders()
         {
-			Binder binder;
-			binder = (stmt, index, value) => SQLite3.BindInt(stmt, index, Convert.ToInt32(value));
+			_Binders[typeof(Int32)] = _BindInt;
+			_Binders[typeof(Byte)] = _BindInt;
+			_Binders[typeof(UInt16)] = _BindInt;
+			_Binders[typeof(SByte)] = _BindInt;
+			_Binders[typeof(Int16)] = _BindInt;
+			_Binders[typeof(Boolean)] = _BindInt;
 
-			_Binders[typeof(Int32)] = binder;
-			_Binders[typeof(Byte)] = binder;
-			_Binders[typeof(UInt16)] = binder;
-			_Binders[typeof(SByte)] = binder;
-			_Binders[typeof(Int16)] = binder;
-			_Binders[typeof(Boolean)] = binder;
+			_Binders[typeof(UInt32)] = _BindInt64;
+			_Binders[typeof(Int64)] = _BindInt64;
 
-			binder = (stmt, index, value) => SQLite3.BindInt64(stmt, index, Convert.ToInt64(value));
-			_Binders[typeof(UInt32)] = binder;
-			_Binders[typeof(Int64)] = binder;
+			_Binders[typeof(float)] = _BindDouble;
+			_Binders[typeof(double)] = _BindDouble;
 
 			_Binders[typeof(string)] = (stmt, index, value) => SQLite3.BindText(stmt, index, (string)value, -1, _NegativePtr);
 
@@ -249,39 +255,38 @@ namespace CoreSharp.SQLite
 				_Conn.Tracer?.Invoke("Executing: " + this);
 			}
 
-			Sqlite3Statement stmt = IntPtr.Zero;
             try
             {
-				var r = SQLite3.Result.OK;
+                Sqlite3Statement stmt = this.Prepare();
 
-				stmt = this.Prepare();
-				r = SQLite3.Step(stmt);
+                var r = SQLite3.Result.OK;
+                r = SQLite3.Step(stmt);
 
-				if (r == SQLite3.Result.Done)
-				{
-					int rowsAffected = SQLite3.Changes(_Conn.Handle);
-					return rowsAffected;
-				}
-				else if (r == SQLite3.Result.Error)
-				{
-					string msg = SQLite3.GetErrmsg(_Conn.Handle);
-					throw new SQLiteException(r, msg);
-				}
-				else if (r == SQLite3.Result.Constraint)
-				{
-					if (SQLite3.ExtendedErrCode(_Conn.Handle) == SQLite3.ExtendedResult.ConstraintNotNull)
-					{
-						throw new NotNullConstraintViolationException(r, SQLite3.GetErrmsg(_Conn.Handle));
-					}
-				}
 
-				throw new SQLiteException(r, SQLite3.GetErrmsg(_Conn.Handle));
-			}
+                if (r == SQLite3.Result.Done)
+                {
+                    int rowsAffected = SQLite3.Changes(_Conn.Handle);
+                    return rowsAffected;
+                }
+                else if (r == SQLite3.Result.Error)
+                {
+                    string msg = SQLite3.GetErrmsg(_Conn.Handle);
+                    throw new SQLiteException(r, msg);
+                }
+                else if (r == SQLite3.Result.Constraint)
+                {
+                    if (SQLite3.ExtendedErrCode(_Conn.Handle) == SQLite3.ExtendedResult.ConstraintNotNull)
+                    {
+                        throw new NotNullConstraintViolationException(r, SQLite3.GetErrmsg(_Conn.Handle));
+                    }
+                }
+
+                throw new SQLiteException(r, SQLite3.GetErrmsg(_Conn.Handle));
+            }
             finally
-			{
-				this.Finalize(stmt);
-			}
-			
+            {
+				this.DisposePreparedStatement();
+            }
 		}
 
 		/// <summary>
@@ -291,41 +296,72 @@ namespace CoreSharp.SQLite
 		/// <param name="staticFieldList">If true, the function will assume field list follows the
 		/// static mapping and will skip column order checks. Used internally by the library.</param>
 		/// <returns></returns>
-		public IEnumerable<T> ExecuteDeferredQuery<T>(bool staticFieldList = false)
+		internal IEnumerable<T> ExecuteDeferredQueryMapped<T>(ITableMapping<T> map)
 		{
-			var map = _Conn.GetMapping<T>();
+            try
+            {
+                Sqlite3Statement stmt = this.Prepare();
+                while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+                {
+                    T obj = map.ReadStatementResult(stmt);
+                    this.OnInstanceCreated(obj);
+                    yield return obj;
+                }
+            }
+            finally
+            {
+				this.DisposePreparedStatement();
+            }
+		}
 
-			if (_Conn.Trace)
-			{
-				_Conn.Tracer?.Invoke("Executing Query: " + this);
-			}
+		/// <summary>
+		/// Get Result from Query. Reader supply a function to read values from statement - this is the fastest
+		/// reading if you know index and type of column in advance
+		/// </summary>
+		/// <typeparam name="T">Return Type</typeparam>
+		/// <param name="reader">Function to read result from a statement</param>
+		/// <returns></returns>
+		public IEnumerable<T> ExecuteDeferredQuery<T>(Func<Sqlite3Statement,T> reader)
+		{
+            try
+            {
+                Sqlite3Statement stmt = this.Prepare();
 
-			Sqlite3Statement stmt = IntPtr.Zero;
+                while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+                {
+                    T obj = reader(stmt);
+                    this.OnInstanceCreated(obj);
+                    yield return obj;
+                }
+            }
+            finally
+            {
+				this.DisposePreparedStatement();
+            }
+		}
+
+		/// <summary>
+		/// Get Result from Query. Reader supply a function to read values from statement
+		/// </summary>
+		/// <typeparam name="T">Return Type</typeparam>
+		/// <param name="reader">Function to read result from a statement</param>
+		/// <returns></returns>
+		public IEnumerable<T> ExecuteDeferredQuery<T>(Func<IReader, T> reader)
+		{
 			try
 			{
-				stmt = this.Prepare();
-
-				string[] cols = null;
-                if (staticFieldList)
-				{
-					cols = new string[SQLite3.ColumnCount(stmt)];
-					for (int i = 0; i < cols.Length; i++)
-					{
-						cols[i] = SQLite3.ColumnName16(stmt, i);
-					}
-				}
+				Sqlite3Statement stmt = this.Prepare();
 
 				while (SQLite3.Step(stmt) == SQLite3.Result.Row)
 				{
-					T obj = map.ReadStatementResult(stmt, cols);
+					T obj = reader(this);
 					this.OnInstanceCreated(obj);
 					yield return obj;
 				}
-
 			}
 			finally
 			{
-				this.Finalize(stmt);
+				this.DisposePreparedStatement();
 			}
 		}
 
@@ -347,37 +383,37 @@ namespace CoreSharp.SQLite
 		/// <returns></returns>
 		public IEnumerable<T> ExecuteDeferredScalars<T>(int columnIndex = 0)
 		{
-			var stmt = this.Prepare();
-			try
-			{
-				var totalColumns = SQLite3.ColumnCount(stmt);
-				if (totalColumns < 1)
-				{
-					throw new InvalidOperationException("QueryScalars should return at least one column");
-				}
+            try
+            {
+                var stmt = this.Prepare();
+                var totalColumns = SQLite3.ColumnCount(stmt);
+                if (totalColumns < 1)
+                {
+                    throw new InvalidOperationException("QueryScalars should return at least one column");
+                }
 
                 if (columnIndex > totalColumns - 1)
-				{
-					throw new ArgumentOutOfRangeException("columnIndex is not within range of returned columns");
-				}
+                {
+                    throw new ArgumentOutOfRangeException("columnIndex is not within range of returned columns");
+                }
 
-				while (SQLite3.Step(stmt) == SQLite3.Result.Row)
-				{
-					var val = this.ReadCol<T>(stmt, columnIndex);
-					if (val == null)
-					{
-						yield return default(T);
-					}
-					else
-					{
-						yield return (T)val;
-					}
-				}
-			}
-			finally
-			{
-				this.Finalize(stmt);
-			}
+                while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+                {
+                    var val = this.ReadColumn<T>(stmt, columnIndex);
+                    if (val == null)
+                    {
+                        yield return default(T);
+                    }
+                    else
+                    {
+                        yield return (T)val;
+                    }
+                }
+            }
+            finally
+            {
+				this.DisposePreparedStatement();
+            }
 		}
 
         #region Dynamic Column Readers
@@ -385,41 +421,47 @@ namespace CoreSharp.SQLite
         private delegate object SQLite3ColumnReader(Sqlite3Statement s, int i);
 		private static Dictionary<Type, SQLite3ColumnReader> _Reader = new();
 
+		private static SQLite3ColumnReader _ReadInt = (s, i) => SQLite3.ColumnInt(s, i);
+
 		private static void BuildColumnReader()
         {
-			SQLite3ColumnReader reader;
-			
-			reader = (s, i) => SQLite3.ColumnInt(s, i);
-			_Reader[typeof(int)] = reader;
-			_Reader[typeof(bool)] = reader;
-			_Reader[typeof(byte)] = reader;
-			_Reader[typeof(UInt16)] = reader;
-			_Reader[typeof(Int16)] = reader;
-			_Reader[typeof(sbyte)] = reader;
+			_Reader[typeof(int)] = _ReadInt;
+			_Reader[typeof(bool)] = _ReadInt;
+			_Reader[typeof(byte)] = _ReadInt;
+			_Reader[typeof(UInt16)] = _ReadInt;
+			_Reader[typeof(Int16)] = _ReadInt;
+			_Reader[typeof(sbyte)] = _ReadInt;
 
-			reader = (s, i) => SQLite3.ColumnInt64(s, i);
-			_Reader[typeof(TimeSpan)] = (s, i) => TimeSpan.FromTicks((long)reader(s, i));
-			_Reader[typeof(DateTime)] = (s, i) => new DateTime((long)reader(s, i));
-			_Reader[typeof(DateTimeOffset)] = (s, i) => new DateTimeOffset((long)reader(s, i), TimeSpan.Zero);
+			_Reader[typeof(long)] = (s, i) => (long)SQLite3.ColumnInt64(s, i);
+			_Reader[typeof(TimeSpan)] = (s, i) => TimeSpan.FromTicks((long)SQLite3.ColumnInt64(s, i));
+			_Reader[typeof(DateTime)] = (s, i) => new DateTime((long)SQLite3.ColumnInt64(s, i));
+			_Reader[typeof(DateTimeOffset)] = (s, i) => new DateTimeOffset((long)SQLite3.ColumnInt64(s, i), TimeSpan.Zero);
 
-			reader = (s, i) => SQLite3.ColumnDouble(s, i);
-			_Reader[typeof(double)] = reader;
-			_Reader[typeof(double)] = reader;
+			_Reader[typeof(double)] = (s, i) => SQLite3.ColumnDouble(s,i);
+			_Reader[typeof(float)] = (s, i) => (float)SQLite3.ColumnDouble(s, i);
 
-			reader = (s, i) => SQLite3.ColumnString(s, i);
-			_Reader[typeof(string)] = reader;
-			_Reader[typeof(Guid)] = (s,i) => new Guid( (string)reader(s,i) );
-			_Reader[typeof(Uri)] = (s, i) => new Uri((string)reader(s, i));
-			_Reader[typeof(StringBuilder)] = (s, i) => new StringBuilder((string)reader(s, i));
-			_Reader[typeof(UriBuilder)] = (s, i) => new UriBuilder((string)reader(s, i));
+			_Reader[typeof(string)] = (s, i) => SQLite3.ColumnString(s, i);
+			_Reader[typeof(Guid)] = (s,i) => new Guid( (string)SQLite3.ColumnString(s,i) );
+			_Reader[typeof(Uri)] = (s, i) => new Uri((string)SQLite3.ColumnString(s, i));
+			_Reader[typeof(StringBuilder)] = (s, i) => new StringBuilder((string)SQLite3.ColumnString(s, i));
+			_Reader[typeof(UriBuilder)] = (s, i) => new UriBuilder((string)SQLite3.ColumnString(s, i));
+
+			_Reader[typeof(byte[])] = (s, i) => SQLite3.ColumnByteArray(s, i);
 		}
 
-		private object ReadCol<T>(Sqlite3Statement stmt, int index)
+		/// <summary>
+		/// Read column value from specified statement at given index
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="stmt"></param>
+		/// <param name="index"></param>
+		/// <returns></returns>
+		private T ReadColumn<T>(Sqlite3Statement stmt, int index)
 		{
 			var colType = SQLite3.ColumnType(stmt, index);
             if (colType == SQLite3.ColType.Null)
             {
-				return null;
+				return default(T);
             }
 
 			var clrType = typeof(T);
@@ -429,24 +471,59 @@ namespace CoreSharp.SQLite
 				if (colType == SQLite3.ColType.Text)
 				{
 					var value = SQLite3.ColumnString(stmt, index);
-					return Enum.Parse(clrType, value.ToString(), true);
+					return (T)Enum.Parse(clrType, value.ToString(), true);
 				}
 				else
 				{
-					return SQLite3.ColumnInt(stmt, index);
+					return (T)(object)SQLite3.ColumnInt(stmt, index);
 				}
 			}
 
 			SQLite3ColumnReader reader;
             if (_Reader.TryGetValue(clrType, out reader))
             {
-				return reader(stmt, index);
+				return (T)(object)reader(stmt, index);
             }
 
 			throw new NotSupportedException("Don't know how to read " + clrType);
 		}
 
 		#endregion
+
+		/// <summary>
+		/// Read Value of current row
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="index"></param>
+		/// <returns></returns>
+		public T ReadCurrentRow<T>( int index )
+        {
+			return this.ReadColumn<T>(_PreparedStatement, index);
+        }
+
+		private Dictionary<string, int> _ColNameCache;
+
+		/// <summary>
+		/// Read Value of current Row
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="column"></param>
+		/// <returns></returns>
+		public T ReadCurrentRow<T>(string column)
+		{
+            if (_ColNameCache == null)
+			{
+				_ColNameCache = new Dictionary<string, int>();
+				var count = SQLite3.ColumnCount(_PreparedStatement);
+				for (int i = 0; i < count; i++)
+				{
+					var name = SQLite3.ColumnName16(_PreparedStatement, i);
+					_ColNameCache[name] = i;
+				}
+			}
+
+			return this.ReadColumn<T>(_PreparedStatement, _ColNameCache[column]);
+		}
 
 		/// <summary>
 		/// Gets string representation of this commdn
@@ -466,40 +543,37 @@ namespace CoreSharp.SQLite
 		}
 
 		/// <summary>
-		/// Finalize the statement, if specified statement is the prepared statement, it will not be finalized
+		/// Clean up prepared statement
 		/// </summary>
-		/// <param name="stmt"></param>
-		private void Finalize(Sqlite3Statement stmt)
+		private void DisposePreparedStatement()
 		{
-            if (stmt == IntPtr.Zero)
+            if (this.AutoDispose == false)
             {
 				return;
             }
 
-			// skip finalizing as requested
-            if (this.IsPreparedStatement && stmt == _PreparedStatement)
-            {
-				return;
-            }
-
-			SQLite3.Finalize(stmt);
-		}
-
-        public void Dispose()
-		{
 			if (_PreparedStatement == IntPtr.Zero)
 			{
 				return;
 			}
 
 			SQLite3.Finalize(_PreparedStatement);
+			_PreparedStatement = IntPtr.Zero;
+		}
+
+		/// <summary>
+		/// Dispose the command
+		/// </summary>
+		public void Dispose()
+		{
+			this.DisposePreparedStatement();
+			GC.SuppressFinalize(this);
 		}
 
 		~SQLiteCommand()
         {
-			this.Dispose();
+			this.DisposePreparedStatement();
         }
-
 	}
 
 }

@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>netstandard2.0</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<AssemblyName>NC.SQLite</AssemblyName>
+		<RootNamespace>NC.SQLite</RootNamespace>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<Version>0.2.0</Version>
+		<Authors>Jirawat Padungkijjanont</Authors>
+		<Company>NantCom Co., Ltd.</Company>
+		<Description>An Object-Relational Mapping based on SQLite-net for use with NC.SQLite.SourceGen package. The package itself can be used independently of NC.SQLite.SourceGen by implementing StaticTableMapping&lt;T&gt;</Description>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<Copyright>2021 NantCom Co., Ltd.</Copyright>
+		<RepositoryUrl>https://github.com/nantcom/sqlite-sg</RepositoryUrl>
+		<RepositoryType>Git</RepositoryType>
+		<PackageTags>sqlite, sqlite-net, sourcegen</PackageTags>
+		<PackageReleaseNotes>- Embedded for Windows SQLite3.dll for x86/x64
+- All Basic Tests Passed (Insert, Update, Delete, Query)</PackageReleaseNotes>
+		<PackageId>NC-SQLite</PackageId>
+	</PropertyGroup>
+
+	<ItemGroup>
+	  <None Remove="SQLiteBinary.zip" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <EmbeddedResource Include="SQLiteBinary.zip" />
+	</ItemGroup>
+
+</Project>
